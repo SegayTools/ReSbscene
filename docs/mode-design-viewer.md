@@ -9,7 +9,7 @@
 | 虚表符号 | `0x00ABD4C4` / `??_7ModeDesignViewer@sequence@game@@6B@` | IDA 已识别为 `game::sequence::ModeDesignViewer::vftable`。 |
 | RTTI complete object locator | `0x00BB8414` | `??_R4ModeDesignViewer@sequence@game@@6B@`。 |
 | Type descriptor | `.?AVModeDesignViewer@sequence@game@@` | RTTI 中的 C++ 类型名。 |
-| 构造函数 | `sub_40A300` | 唯一直接调用点在 `sub_40BE20`。 |
+| 构造函数 | `sub_40A300` | 唯一直接调用点在 `sub_40BE20`。 |2
 | 析构函数主体 | `sub_40A480` | 由 scalar deleting destructor `sub_40B5C0` 调用。 |
 | 创建入口 | `sub_40BE20` at `0x40C8F8..0x40C924` | 当 `sub_40FAA0(0)+0x48` 标志为真时，分配 `0x138` 字节并以宽字符串 `DesignViewer` 构造本类。 |
 

@@ -1026,6 +1026,8 @@ public static class MarkdownExporter
         builder.AppendLine();
         builder.AppendLine("`0x0B` 在旋转上下文中按 signed fixed-angle 候选解释：`degrees = raw * 180 / 32768`。这不是全局确认；例如 `CAM.0x14` 仍按 flags-like/未知处理。");
         builder.AppendLine();
+        builder.AppendLine("渲染时还要把 scene/source 角度转换到 2D 屏幕坐标矩阵；当前 CLI PNG renderer 和 Viewer 使用 `-degrees`，这一步与 raw 角度解码分开。");
+        builder.AppendLine();
         builder.AppendLine("| Context | Values | Track types | Raw examples | Degree examples |");
         builder.AppendLine("| --- | ---: | --- | --- | --- |");
         if (transformAngles.Length > 0)

@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using SbScene.Core.Images;
 using SbScene.Core.Output;
+using SbScene.Core.Rendering;
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
 using SbScene.Core.Vtbf;
@@ -38,6 +40,7 @@ static int Run(string[] args)
         "extract-images" => ExtractImages(args.Skip(1).ToArray()),
         "inspect" => Inspect(args.Skip(1).ToArray()),
         "inspect-svo" => InspectSvo(args.Skip(1).ToArray()),
+        "render" => Render(args.Skip(1).ToArray()),
         "survey" => Survey(args.Skip(1).ToArray()),
         _ => UnknownCommand(args[0]),
     };
@@ -137,6 +140,206 @@ static int ExtractImages(string[] args)
     Console.WriteLine($"Extracted {result.CropCount} crop PNG(s) from {result.AtlasCount} atlas image(s).");
     Console.WriteLine($"Mapped {result.ImageCastCount} image cast record(s).");
     Console.WriteLine($"Output: {result.OutputDirectory}");
+    foreach (var warning in result.Warnings)
+    {
+        Console.WriteLine($"Warning: {warning}");
+    }
+
+    return 0;
+}
+
+static int Render(string[] args)
+{
+    if (args.Length == 0 || args[0] is "-h" or "--help")
+    {
+        PrintRenderUsage();
+        return args.Length == 0 ? 1 : 0;
+    }
+
+    var positionals = new List<string>();
+    string? output = null;
+    string? filter = null;
+    var padding = 80;
+    var scale = 1.0;
+    var background = RgbaColor.Transparent;
+    var showHidden = false;
+    var renderSecondary = false;
+    var characterDefaults = false;
+    var animations = new List<SbSceneAnimationSelection>();
+
+    for (var i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "--out" when i + 1 < args.Length:
+                output = args[++i];
+                break;
+            case "--filter" when i + 1 < args.Length:
+                filter = args[++i];
+                break;
+            case "--padding" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedPadding):
+                padding = parsedPadding;
+                i++;
+                break;
+            case "--scale" when i + 1 < args.Length && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedScale):
+                scale = parsedScale;
+                i++;
+                break;
+            case "--background" when i + 1 < args.Length:
+                if (!TryParseColor(args[++i], out background))
+                {
+                    Console.Error.WriteLine("Invalid --background value. Use transparent, #RRGGBB, or #AARRGGBB.");
+                    return 1;
+                }
+
+                break;
+            case "--transparent":
+                background = RgbaColor.Transparent;
+                break;
+            case "--show-hidden":
+                showHidden = true;
+                break;
+            case "--render-secondary":
+                renderSecondary = true;
+                break;
+            case "--character-defaults":
+                characterDefaults = true;
+                break;
+            case "--animation" when i + 1 < args.Length:
+                if (!TryParseAnimationSelection(args[++i], out var selection))
+                {
+                    Console.Error.WriteLine("Invalid --animation value. Use Name, Name@Frame, or Name:Frame.");
+                    return 1;
+                }
+
+                animations.Add(selection);
+                break;
+            default:
+                if (args[i].StartsWith("--", StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine($"Unknown or incomplete option: {args[i]}");
+                    return 1;
+                }
+
+                positionals.Add(args[i]);
+                break;
+        }
+    }
+
+    if (positionals.Count is < 1 or > 2)
+    {
+        Console.Error.WriteLine("render requires <sbscene-or-dir> and optionally <svo>.");
+        return 1;
+    }
+
+    if (output is null)
+    {
+        Console.Error.WriteLine("render requires --out <png-or-dir>.");
+        return 1;
+    }
+
+    if (characterDefaults)
+    {
+        animations.InsertRange(0, BuildCharacterDefaultSelections());
+    }
+
+    var options = new SbSceneRenderOptions
+    {
+        Padding = padding,
+        Scale = scale,
+        BackgroundColor = background,
+        ShowHiddenNodes = showHidden,
+        RenderSecondaryImages = renderSecondary,
+        Animations = animations,
+    };
+
+    var input = positionals[0];
+    if (Directory.Exists(input))
+    {
+        if (positionals.Count > 1)
+        {
+            Console.Error.WriteLine("render directory mode does not accept an explicit <svo>; SVO files are matched per sbscene directory.");
+            return 1;
+        }
+
+        return RenderDirectory(input, output, filter, options);
+    }
+
+    if (!File.Exists(input))
+    {
+        Console.Error.WriteLine($"Input does not exist: {input}");
+        return 1;
+    }
+
+    var svoCandidateCount = -1;
+    var svo = positionals.Count > 1 ? positionals[1] : FindSingleSvoForScene(input, out svoCandidateCount);
+    if (svo is null)
+    {
+        Console.Error.WriteLine(svoCandidateCount == 0
+            ? "render requires <svo>; no .svo files were found in the sbscene directory."
+            : $"render requires an explicit <svo>; found {svoCandidateCount} .svo files in the sbscene directory.");
+        return 1;
+    }
+
+    if (!File.Exists(svo))
+    {
+        Console.Error.WriteLine($"SVO does not exist: {svo}");
+        return 1;
+    }
+
+    return RenderOne(input, svo, output, options);
+}
+
+static int RenderDirectory(string inputDirectory, string outputDirectory, string? filter, SbSceneRenderOptions options)
+{
+    var scenePaths = Directory.EnumerateFiles(inputDirectory, "*.sbscene", SearchOption.AllDirectories)
+        .Where(path => filter is null || path.Contains(filter, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    if (scenePaths.Length == 0)
+    {
+        Console.Error.WriteLine("No sbscene files matched.");
+        return 1;
+    }
+
+    Directory.CreateDirectory(outputDirectory);
+    var rendered = 0;
+    var skipped = 0;
+    var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach (var sbscene in scenePaths)
+    {
+        var svo = FindSingleSvoForScene(sbscene, out var svoCandidateCount);
+        if (svo is null)
+        {
+            skipped++;
+            Console.WriteLine(svoCandidateCount == 0
+                ? $"Skipped {sbscene}: no .svo files were found in the same directory."
+                : $"Skipped {sbscene}: found {svoCandidateCount} .svo files in the same directory.");
+            continue;
+        }
+
+        var output = BuildBatchRenderOutputPath(inputDirectory, outputDirectory, sbscene, usedNames);
+        var code = RenderOne(sbscene, svo, output, options);
+        if (code != 0)
+        {
+            return code;
+        }
+
+        rendered++;
+    }
+
+    Console.WriteLine($"Rendered {rendered} scene(s), skipped {skipped}.");
+    return rendered > 0 ? 0 : 1;
+}
+
+static int RenderOne(string sbscene, string svo, string output, SbSceneRenderOptions options)
+{
+    var scene = new SbSceneParser().ParseFile(sbscene);
+    var result = SbScenePngRenderer.Render(scene, svo, options);
+
+    EnsureDirectory(output);
+    PngWriter.Write(output, result.Image);
+    Console.WriteLine($"Rendered {result.RenderedItemCount}/{result.CandidateItemCount} item(s) to {output} ({result.Image.Width}x{result.Image.Height}).");
     foreach (var warning in result.Warnings)
     {
         Console.WriteLine($"Warning: {warning}");
@@ -5601,6 +5804,146 @@ static bool IsNonZero(double? value)
     return value is not null && Math.Abs(value.Value) > 0.000001;
 }
 
+static IReadOnlyList<SbSceneAnimationSelection> BuildCharacterDefaultSelections()
+{
+    return
+    [
+        new SbSceneAnimationSelection("Change_Fashion", 0),
+        new SbSceneAnimationSelection("Change_Position", 0),
+        new SbSceneAnimationSelection("Change_Accessory", 0),
+        new SbSceneAnimationSelection("Action_Wait1", 0),
+        new SbSceneAnimationSelection("Mouth_Wait1", 0),
+    ];
+}
+
+static string? FindSingleSvoForScene(string sbscene, out int candidateCount)
+{
+    candidateCount = 0;
+    var directory = Path.GetDirectoryName(Path.GetFullPath(sbscene));
+    if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+    {
+        return null;
+    }
+
+    var candidates = Directory.EnumerateFiles(directory, "*.svo", SearchOption.TopDirectoryOnly)
+        .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    candidateCount = candidates.Length;
+    return candidates.Length == 1 ? candidates[0] : null;
+}
+
+static string BuildBatchRenderOutputPath(string inputDirectory, string outputDirectory, string sbscene, ISet<string> usedNames)
+{
+    var fullInput = Path.GetFullPath(inputDirectory);
+    var fullScene = Path.GetFullPath(sbscene);
+    var relative = Path.GetRelativePath(fullInput, fullScene);
+    var directoryName = Path.GetFileName(Path.GetDirectoryName(fullScene));
+    var stem = Path.GetFileNameWithoutExtension(fullScene);
+    var baseName = string.IsNullOrWhiteSpace(directoryName)
+        ? stem
+        : string.Equals(directoryName, stem, StringComparison.OrdinalIgnoreCase)
+            ? stem
+            : stem.StartsWith($"{directoryName}__", StringComparison.OrdinalIgnoreCase)
+                ? stem
+                : $"{directoryName}__{stem}";
+
+    if (string.IsNullOrWhiteSpace(baseName))
+    {
+        baseName = Path.GetFileNameWithoutExtension(relative);
+    }
+
+    var safeName = MakeSafeFileName(baseName);
+    var uniqueName = safeName;
+    for (var suffix = 2; !usedNames.Add(uniqueName); suffix++)
+    {
+        uniqueName = $"{safeName}_{suffix}";
+    }
+
+    return Path.Combine(outputDirectory, $"{uniqueName}.png");
+}
+
+static string MakeSafeFileName(string name)
+{
+    var invalid = Path.GetInvalidFileNameChars();
+    var chars = name.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
+    return new string(chars);
+}
+
+static bool TryParseAnimationSelection(string text, out SbSceneAnimationSelection selection)
+{
+    selection = new SbSceneAnimationSelection(string.Empty, 0);
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        return false;
+    }
+
+    var separator = text.LastIndexOf('@');
+    if (separator < 0)
+    {
+        separator = text.LastIndexOf(':');
+    }
+
+    if (separator < 0)
+    {
+        selection = new SbSceneAnimationSelection(text.Trim(), 0);
+        return selection.Name.Length > 0;
+    }
+
+    var name = text[..separator].Trim();
+    var frameText = text[(separator + 1)..].Trim();
+    if (name.Length == 0 || frameText.Length == 0)
+    {
+        return false;
+    }
+
+    if (!double.TryParse(frameText, NumberStyles.Float, CultureInfo.InvariantCulture, out var frame))
+    {
+        return false;
+    }
+
+    selection = new SbSceneAnimationSelection(name, frame);
+    return true;
+}
+
+static bool TryParseColor(string text, out RgbaColor color)
+{
+    color = RgbaColor.Transparent;
+    if (string.Equals(text, "transparent", StringComparison.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var value = text.Trim();
+    if (value.StartsWith('#'))
+    {
+        value = value[1..];
+    }
+
+    if (value.Length == 6)
+    {
+        if (!int.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
+        {
+            return false;
+        }
+
+        color = new RgbaColor((byte)((rgb >> 16) & 0xFF), (byte)((rgb >> 8) & 0xFF), (byte)(rgb & 0xFF), 0xFF);
+        return true;
+    }
+
+    if (value.Length == 8)
+    {
+        if (!uint.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var argb))
+        {
+            return false;
+        }
+
+        color = new RgbaColor((byte)((argb >> 16) & 0xFF), (byte)((argb >> 8) & 0xFF), (byte)(argb & 0xFF), (byte)((argb >> 24) & 0xFF));
+        return true;
+    }
+
+    return false;
+}
+
 static int UnknownCommand(string command)
 {
     Console.Error.WriteLine($"Unknown command: {command}");
@@ -5626,6 +5969,23 @@ static void PrintUsage()
     Console.WriteLine("  SbScene.Cli dump <file> --json <out> [--markdown <out>]");
     Console.WriteLine("  SbScene.Cli dump <file> --markdown <out> [--json <out>]");
     Console.WriteLine("  SbScene.Cli extract-images <sbscene> <svo> --out <dir> [--no-atlas]");
+    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--animation <name[@frame]>] [--background <color>] [--scale <n>] [--padding <px>] [--show-hidden] [--render-secondary]");
+}
+
+static void PrintRenderUsage()
+{
+    Console.WriteLine("Usage:");
+    Console.WriteLine("  SbScene.Cli render <sbscene> [svo] --out <png> [options]");
+    Console.WriteLine("  SbScene.Cli render <dir> --out <dir> [--filter <text>] [options]");
+    Console.WriteLine();
+    Console.WriteLine("Options:");
+    Console.WriteLine("  --character-defaults       Apply Change_Fashion, Change_Position, Change_Accessory, Action_Wait1, and Mouth_Wait1 at frame 0.");
+    Console.WriteLine("  --animation <name[@frame]> Apply an animation at a frame. Can be specified multiple times; later selections override earlier state.");
+    Console.WriteLine("  --background <color>      transparent, #RRGGBB, or #AARRGGBB.");
+    Console.WriteLine("  --scale <n>               Output scale. Default: 1.");
+    Console.WriteLine("  --padding <px>            Transparent padding around content. Default: 80.");
+    Console.WriteLine("  --show-hidden             Render nodes even if display state is false.");
+    Console.WriteLine("  --render-secondary        Also render secondary CIMG references.");
 }
 
 internal sealed class SurveyResult

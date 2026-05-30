@@ -499,6 +499,7 @@ public static class InspectFormatter
         builder.AppendLine();
         builder.AppendLine("Packed angle candidates:");
         builder.AppendLine("  formula: degrees = raw * 180 / 32768; only applied to rotation contexts, CAM.0x14 remains flags-like/unknown");
+        builder.AppendLine("  render: 2D screen-space matrices apply -degrees; keep this separate from raw-to-degree decoding");
         if (transformAngles.Length > 0)
         {
             var rawValues = transformAngles.Select(static transform => transform.RotationZRaw).ToArray();

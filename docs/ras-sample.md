@@ -175,6 +175,8 @@ TRS2 字段统计：
 
 运行时链路现在可以闭合到 Ras 的服饰样本：游戏侧 wrapper 通过 `SurfboardWrapper_EnableAnimationAtTime` (`sub_5C9440`) 映射逻辑 animation，调用 `SbPlayerMO_SetAnimationEnabled` 选择 animation，再由 `SbPlayerMO_SetAnimationTime` 把该 animation seek 到状态帧；`Layer_UpdateActiveAnimations` 再用该时间调用 `Cast_EvaluateMotionTracks`。因此 `Change_Fashion`/`Change_Accessory` 这类动画可以作为状态表使用；关键帧多数是 step/constant，frame 值本身就是状态编号。
 
+Ras wrapper 里负责同步这些状态的是 `sub_609E20`。它固定刷新 logical animation `1/2/3/4`，在当前 Ras 样本中分别对应 `Change_Fashion`、`Change_Position`、`Change_Accessory`、`Effect_Heart1`：服饰使用 `this+0x198` 的服饰状态 index，经 `dword_F40714` 指向对象的 `+0x38` 表取 record `+0x44` 作为 `Change_Fashion` frame；如果 `this+0x224` 置位且 `this+0x228 != -1`，则直接用该 override frame。饰品使用 `this+0x1E8` 作为 `Change_Accessory` frame，站位使用 `this+0x1C8` 作为 `Change_Position` frame。`sub_60A080/sub_60A1B0` 在换装/切换入口会先按这些字段 seek `Change_Fashion` 和 `Change_Accessory`；`SbMMRasWrapper_Update` (`sub_60A850`) 的状态 4 还会在内部计时到 frame 45 时推进 `this+0x198/0x19C` 并重新 seek `Change_Fashion`。
+
 `Change_Fashion` 中有 105 条 type 11 display 轨道。按 step/hold 方式在 frame `0..3` 复算，display=true 数分别为 `42/47/44/38`：frame 1 以 `plain_*` 为主，frame 2 以 `uniform_*` / `unifrom_*` 为主，frame 3 以 `gorgeous_*` 为主；frame 0 还包含部分 plain、腿部、耳部和高光/基础部件。少量 `upperarm/forearm/hand` 节点同时带 type 18 primary image slot 轨道，但这些只切图，不负责开关可见性。
 
 | Frame | Fashion display=true 摘要 | type 18 primary slot 变化 |
@@ -210,6 +212,8 @@ Ras 的 `TRK.flags` 目前只出现四类。低 nibble 全为 `0x3`；高 nibble
 | `0x43` | `0x3` | `0x4` | `PackedAngleCandidateCurve` | 1,856 | `0x000B PackedAngleCandidate` | `5(RotateZ)` 和少量 `3/4` 旋转候选；旋转上下文按 signed fixed-angle raw int 候选解释。 |
 
 `0x0B` 旧称 `Int32/Float32/PackedFloat32` 不够准确。就 Ras 样本看，它在 `TRS2.0x32` 与 `KEY.0x5B` 的旋转轨道上下文中当前只按 signed fixed-angle raw int 候选解释，候选公式为 `degrees = raw * 180.0 / 32768.0`。典型换算：raw `910 ≈ 5 deg`、`1820 ≈ 10 deg`、`5461 ≈ 30 deg`、`16383 ≈ 90 deg`、`32767 ≈ 180 deg`。该结论仍是候选；`KEY.0x5B type 0x0B` 在 Ras 中主要出现在 track type `5(RotateZ)`，另有少量 type `3/4` 旋转候选。
+
+Ras 的渲染校验样本是 `plain_leg_R1`：静态 `TRS2.0x32 raw=5461` 解码约为 `+30 deg`。在当前 2D 像素坐标渲染路径中，这个 scene/source 角度必须按 `-30 deg` 应用到本地矩阵；直接按 `+30 deg` 应用会把右小腿和鞋子甩到身体右侧。CLI PNG renderer 和 Viewer 现在都通过同一个转换约定处理这一步，避免 raw 角度解码与屏幕矩阵方向混在一起。
 
 主 Markdown 报告现在还会输出统一的 Track type 证据表。Ras 中几个候选/状态 type 的值域如下：
 
@@ -347,4 +351,4 @@ Ras 样本有一个 camera：
 当前限制：
 
 - YABX 对象表在 Ras 中已能完整覆盖 14/14 个对象 payload；full survey 的当前 resource skeleton（`Database / VertexDeclaration / VertexElement / Texture / Image`）也已字段级完整覆盖。仍未覆盖的是其它 YABX 版本或新增对象类型的 payload 泛化解码。
-- `TRK.flags` bit 级含义、`KEY.0x5C/0x5D/0x5E` 的精确插值/tangent 语义仍待确认；`TRK.0x57` 已可按 keyframe 数量处理，`0x5D/0x5E` 在 Ras 中相等，但 full survey 已确认 mismatch 覆盖 9 个场景和多个 track type。`TRK.flags 0x43` / high nibble `0x4` 当前只按 `PackedAngleCandidate` 记录，signed fixed-angle raw int 只是旋转上下文候选，不作为已确认 `PackedFloat32`。
+- `TRK.flags` bit 级含义仍待确认；`KEY.0x5C/0x5D/0x5E` 的 spline 分支已按运行时代码复现为三次 Hermite，更多 UI/特殊 track 的边界行为仍需继续验证。`TRK.0x57` 已可按 keyframe 数量处理，`0x5D/0x5E` 在 Ras 中相等，但 full survey 已确认 mismatch 覆盖 9 个场景和多个 track type。`TRK.flags 0x43` / high nibble `0x4` 当前只按 `PackedAngleCandidate` 记录，signed fixed-angle raw int 只是旋转上下文候选，不作为已确认 `PackedFloat32`。

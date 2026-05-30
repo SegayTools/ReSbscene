@@ -1,6 +1,6 @@
 # 动画系统记录
 
-第一版目标是结构解析，不做插值、播放求值或渲染。
+解析器保留结构字段和候选语义；PNG renderer 已实现当前用于导出的播放求值与渲染路径。
 
 ## 块结构
 
@@ -198,6 +198,8 @@ full survey 现在输出 `TransformTrack*` 聚合。type `0/1/5/6/7` 能绑定�
 
 transform track 的 value storage 也已分开：type `0/1/2/6/7/8` 使用 `0x000A Float32`，type `3/4/5` 使用 `0x000B PackedAngleCandidate`。type `0x0B` 旧称 `PackedFloat32` 不准确；在 type `5(RotateZ)` 和少量 type `3/4` 旋转候选中，当前只按 signed fixed-angle raw int 候选解释，候选公式为 `degrees = raw * 180.0 / 32768.0`。示例 raw `910/1820/5461/16383/32767` 分别约为 `5/10/30/90/180 deg`。该解释仅限旋转轨道候选，不应用到 camera flags 等字段。
 
+渲染器还需要单独处理坐标系方向：上式得到的是 scene/source 角度；当前 CLI PNG renderer 和 Viewer 在 2D 像素坐标（Y 向下）中使用 `-degrees` 作为矩阵旋转角。Ras 的 `plain_leg_R1` 静态 `TRS2.0x32 raw=5461` 解码约为 `+30 deg`，按 `-30 deg` 应用后右腿链与身体对齐；直接按 `+30 deg` 应用会复现旧的右小腿/鞋子外甩问题。
+
 full survey 现在把 `KEY.0x5B type 0x0B` 作为 packed-angle candidate 单独聚合。surfboard/surfboard_EN 两组结果如下：
 
 | Survey | Tracks | Keys | Track type distribution | Key distribution | Raw distinct | Raw range |
@@ -219,6 +221,8 @@ full survey 现在把颜色相关 track 与目标节点初始 `TRS2` 颜色通�
 按 track type 看，JP/EN 的初始通道匹配分别覆盖 `21:920/932`、`22:914/928`、`23:919/935`、`25:866/874`、`26:860/868`、`27:863/871`、`28:29/29` 条 track。type 28 在当前 full survey 中全部匹配 illumination alpha 初始值。
 
 type 24 现在有单独的 Alpha/Opacity 证据表。它与 `TRS2.0x37` 的材质 alpha 有匹配证据，但不是同一个静态字段：Ras 58 条 type 24 中有 56 条至少一个 key 按 survey 初始 alpha 匹配规则命中，Chiffon 为 34/34，Otohime 为 37/37；同时它也作用于无 CIMG 的 root/null/control 节点，例如 `FadeIn1/FadeOut1 -> *_root`。当前仅将 type 24 作为“目标有效 opacity/alpha 动画通道”候选处理，材质 alpha 是默认/初始值来源候选之一。
+
+PNG renderer / Viewer 当前按节点树累计 effective opacity：本节点 alpha 与父级 effective opacity 相乘，因此无 CIMG 的控制节点也能通过 type 24 或 material alpha 使整条子树透明。
 
 full survey 中 type 24 的 key value 也全部在 `0..1`，所有目标节点都有 `TRS2.0x37` material alpha；但初始 alpha 匹配不是全覆盖，因此继续按独立 opacity/alpha 通道候选处理：
 
@@ -245,7 +249,7 @@ Ras 中 `0x5C` 只观察到三类值：
 | ---: | --- | ---: | --- |
 | 0 | `StepOrConstant` | 2,020 | 主要见于 display/bool state，tangent 通常为 0。 |
 | 1 | `Linear` | 12,648 | 最常见曲线类型，tangent 可为 0。 |
-| 2 | `Spline` | 4,966 | 常见非 0 tangent；平滑插值语义仍为候选。 |
+| 2 | `Spline` | 4,966 | 常见非 0 tangent；PNG renderer 按运行时代码的三次 Hermite 公式求值。 |
 
 按插值值统计非零 tangent：
 
@@ -275,7 +279,7 @@ full survey 的 `0x5D != 0x5E` mismatch 两组均为 123，出现在 9 个场景
 
 `KeyTangentDeltaSignCounts` 以 `scope|interpolation|trackType|in/out sign|prev/nextDelta sign` 形式记录相邻 value 方向。mismatch 中 116/116 个 key 两侧均可比较，其中 `0x5D` 与前一段 delta 同号为 106/106，`0x5E` 与后一段 delta 同号为 90/90，两端都同号为 74/74；但整体非零 tangent 中两侧可比较为 4648/4649，只有 486/486 两端都同号，301/302 两端都不同号，说明非零 tangent 不能简化为相邻 key value 的普通差分。
 
-Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type 7 `ScaleY`（125 个）、type 1 `TranslateY`（34 个），另有少量 type 6 和 type 24。大多数非零值不能用相邻 key 的简单差分解释，当前按 Hermite/Bezier tangent 候选保留。
+Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type 7 `ScaleY`（125 个）、type 1 `TranslateY`（34 个），另有少量 type 6 和 type 24。运行时代码的 spline 分支使用当前 key 的 `0x5E` 作为 outgoing tangent、下一 key 的 `0x5D` 作为 incoming tangent，公式等价于三次 Hermite；PNG renderer 已按该公式求中间帧。
 
 ## 动画到节点绑定
 
@@ -325,7 +329,7 @@ Ras 中三类状态候选总量：
 
 `PrimaryImageVariantIndexCandidate` 的 key value 在 Ras 中全部通过 primary CREF 组范围检查。结合已核对的分组范围检查逻辑和运行时 slot 写入逻辑，type 18 按 primary CREF 组范围理解；type 19 按 secondary CREF 组范围理解。例如 `forearm_L01` 的 values 为 `0,1,2`，对应 primary image refs；多个嘴部节点的 type 18 key 落在 2-4 条 primary 口型/表情 image refs 范围内。full survey 中 `CIMG.0x45` 与最早 key 只是高比例对齐，不是全覆盖关系，因此状态轨道摘要不把 `0x45` 当作当前/选中状态来源。
 
-Ras 的服饰/饰品状态由“启用对应 animation + seek 到状态帧”驱动，而不是由 type 18/19 单独驱动。`Change_Fashion` 的 type 11 display keys 在 frame `0..3` 上切换 plain/uniform/gorgeous 等部件；`Change_Accessory` 同样用 frame `0..3` 切换手部道具，`tray` 在 frame 1 与 frame 3 为 true，按 step/hold 在 frame 2 也保持显示。运行时链路是：上层调用 `SbPlayerMO_SetAnimationEnabled/SetAnimationTime` 选择 animation 和 frame，`Layer_UpdateActiveAnimations` 把该时间传给 `Cast_EvaluateMotionTracks`，最终每个 cast 的 type 11 写入可见性。
+Ras 的服饰/饰品状态由“启用对应 animation + seek 到状态帧”驱动，而不是由 type 18/19 单独驱动。`Change_Fashion` 的 type 11 display keys 在 frame `0..3` 上切换 plain/uniform/gorgeous 等部件；`Change_Accessory` 同样用 frame `0..3` 切换手部道具，`tray` 在 frame 1 与 frame 3 为 true，按 step/hold 在 frame 2 也保持显示。Ras wrapper 的 `sub_609E20` 会刷新 logical animation `1/2/3/4`，在 Ras 样本中对应 `Change_Fashion/Change_Position/Change_Accessory/Effect_Heart1`；其中服饰 frame 来自 `this+0x198` 经 `dword_F40714` 指向对象的 `+0x38` 表 record `+0x44` 映射后的值或 `this+0x228` override，饰品 frame 直接来自 `this+0x1E8`。随后 `Layer_UpdateActiveAnimations` 把该时间传给 `Cast_EvaluateMotionTracks`，最终每个 cast 的 type 11 写入可见性。
 
 ## 命名模式
 
@@ -354,7 +358,7 @@ Ras 的服饰/饰品状态由“启用对应 animation + seek 到状态帧”驱
 
 - `TRK.flags` base byte 的低 nibble `0x3` 的 bit 含义；base byte 高 nibble 与 key value storage 的关系在 JP/EN full survey 中已稳定，但仍只作为存储分类，不命名低位 bit 业务语义。
 - `TRK.flags` base byte `0x43` / storage nibble `0x4` 的 storage 名称当前写作 `PackedAngleCandidate`；signed fixed-angle raw int 只是旋转上下文的解释候选，仍不是已确认 packed float。
-- `KEY.0x5C/0x5D/0x5E` 的准确插值和 tangent 语义。
-- 更高层游戏逻辑如何给 `SbPlayerMO_SetAnimationEnabled/SetAnimationTime` 传入具体服饰、饰品和动作状态。
+- `KEY.0x5C/0x5D/0x5E` 在更多 UI/特殊 track 上的边界行为。
+- `this+0x198/0x19C/0x1E8/0x224/0x228` 这些 Ras wrapper 状态字段的业务来源，以及 `dword_F40714` 指向对象的 `+0x38` 表 record `+0x44` 的数据含义。
 - `CIMG.0x45` 与 type 18/19 起始 key 经常一致但不是全覆盖；运行时可作为静态 fallback/default slot index 理解，但不能命名为当前或选中状态。
 - `DressChange` 是否只是复合动画，还是有额外状态机字段。

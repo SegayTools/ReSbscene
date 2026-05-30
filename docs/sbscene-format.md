@@ -437,6 +437,8 @@ type 18 / 19 当前分别命名为 `PrimaryImageVariantIndexCandidate` / `Second
 
 type 24 与 `TRS2.0x37` 的 alpha 通道有交叉证据：Ras/Chiffon/Otohime 中分别有 56/58、34/34、37/37 条 type 24 track 至少一个 key 与目标节点初始材质 alpha 匹配。full survey 中 JP/EN 为 9,849/9,977 条 type 24 track、19,242/19,427 个 key，所有 key 都在 `0..1`，所有目标节点都有 material alpha；初始 alpha 匹配为 8,142/8,229 条 track。它也用于无 CIMG 的 root/null/control 节点，且可在动画中从初始 alpha 过渡到其它值，所以当前按“目标有效 opacity/alpha 动画通道”候选处理，不并入 `MaterialColor` 四通道命名。
 
+当前 PNG renderer / Viewer 按节点树累计 effective opacity：本节点 material alpha（含 type 24 覆盖后的值）会与父级 effective opacity 相乘。Milk 默认状态中 `Tail_Toge_NUL`、`Arm_2_ALL` 这类无 CIMG 父节点 alpha 为 0，子 CIMG 因父级 effective opacity 为 0 而不应绘制。
+
 结构层 full survey 现在输出 `TrackKeyStorageMatrixCounts`、`TrackFieldSequenceCounts`、`KeyFieldSequenceCounts`、`TrackFrameRangeRelationCounts`、`TrackKeyFrameOrderCounts`、`TrackKeyFrameDuplicateCounts`、`TrackFirstFrameDeltaCounts` 和 `TrackLastFrameDeltaCounts`。JP/EN 的 `TRK` 字段顺序各只有一种：`0x0053:0x0006>0x0057:0x0006>0x0054:0x0009>0x0058:0x0008>0x0059:0x0008`，覆盖 94,611/95,558 条 track。`KEY` 字段顺序各只有 4 种，差异仅为 `0x5B` type：Float32 为 113,316/114,370，PackedAngleCandidate 为 45,602/45,690，Int32 为 16,755/16,757，Bool 为 11,107/11,185；其余字段保持 `0x5A Int32`、`0x5C UInt16`、`0x5D Float32`、`0x5E Float32`。
 
 key frame 序列在 JP/EN 的 94,611/95,558 条 track 中全部为非递减。`TRK.0x58 first frame` 与最小 key frame 的差值全部为 0；`TRK.0x59 last frame` 等于最大 key frame 的 track 为 91,185/92,114，另外 3,426/3,444 条为 last frame 大于最大 key frame，仍包含全部 key。重复 frame 只观察到 2/2 条 track，均在 `MM_UI_DetailOption__Base_UI.sbscene` 与 `MM_UI_Shiborikomi__Base_UI.sbscene` 的 `FadeIn -> cover`、type 24 `AlphaOrOpacity`，frame 4 有两个不同 alpha key。因此只能确认 key frame 非递减，不能写成严格递增，也不能把重复 frame 的运行时选择规则当作已确认。
@@ -454,6 +456,8 @@ key frame 序列在 JP/EN 的 94,611/95,558 条 track 中全部为非递减。`T
 ```text
 degrees = raw * 180.0 / 32768.0
 ```
+
+渲染时要把上面解出的 scene/source 角度再转换到 2D 像素坐标系。当前 CLI PNG renderer 和 Viewer 都在屏幕坐标（Y 向下）中用 `-degrees` 构造本地旋转矩阵；这一步与 `raw -> degrees` 的数值解码分开记录。Ras 的 `plain_leg_R1` 静态 `TRS2.0x32 raw=5461` 是当前校验样本：raw 解码约为 `+30 deg`，在屏幕矩阵中按 `-30 deg` 应用后右腿链回到身体下方；直接按 `+30 deg` 应用会把右小腿/鞋子甩到身体右侧。
 
 该解释只用于旋转相关上下文：`TRS2.0x32` 的 rotation 候选，以及 `KEY.0x5B` 在 `TRK.flags = 0x43` / high nibble `0x4` 的旋转轨道中。示例换算：
 

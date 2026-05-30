@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using SbScene.Core.Images;
+using SbScene.Core.Rendering;
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
 
@@ -268,7 +269,17 @@ internal static class SceneRenderBuilder
     public static RenderScene Build(SbSceneFile scene, SvoRenderResources? resources, RenderSceneOptions options)
     {
         var nodes = scene.Surfboard.Nodes;
-        var worldTransforms = BuildWorldTransforms(nodes);
+        var parentByNode = SbSceneRenderTree.BuildParentMap(nodes);
+        var visibleNodes = SbSceneRenderTree.BuildFinalVisibility(
+            nodes,
+            parentByNode,
+            index => nodes[index].Transform2D?.Display != false,
+            options.ShowHiddenNodes);
+        var effectiveOpacities = SbSceneRenderTree.BuildEffectiveOpacity(
+            nodes,
+            parentByNode,
+            index => (nodes[index].Transform2D?.MaterialColor?.A ?? (byte)255) / 255.0);
+        var worldTransforms = BuildWorldTransforms(nodes, parentByNode);
         var imageCastByNode = scene.Surfboard.Resources.ImageCasts
             .GroupBy(static imageCast => imageCast.CastIndex)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
@@ -282,7 +293,13 @@ internal static class SceneRenderBuilder
             }
 
             var node = nodes[imageCast.CastIndex];
-            if (!ShouldRenderNode(node, options))
+            if (!ShouldRenderNode(node, options, visibleNodes))
+            {
+                continue;
+            }
+
+            var opacity = effectiveOpacities[node.Index];
+            if (opacity <= 0)
             {
                 continue;
             }
@@ -299,7 +316,6 @@ internal static class SceneRenderBuilder
                 ? null
                 : resources.ResolveBitmap(scene, imageCast, out resourceInfo);
             resourceInfo ??= resources is null ? "no SVO bound" : null;
-            var opacity = (node.Transform2D?.MaterialColor?.A ?? (byte)255) / 255.0;
             var worldBounds = TransformRect(localRect, transform);
             items.Add(new RenderItem
             {
@@ -321,7 +337,7 @@ internal static class SceneRenderBuilder
         {
             foreach (var node in nodes)
             {
-                if (!ShouldRenderNode(node, options))
+                if (!ShouldRenderNode(node, options, visibleNodes))
                 {
                     continue;
                 }
@@ -430,9 +446,10 @@ internal static class SceneRenderBuilder
         return roots.Length > 0 ? roots : rows.Values.ToArray();
     }
 
-    private static IReadOnlyDictionary<int, Matrix> BuildWorldTransforms(IReadOnlyList<NodeInfo> nodes)
+    private static IReadOnlyDictionary<int, Matrix> BuildWorldTransforms(
+        IReadOnlyList<NodeInfo> nodes,
+        IReadOnlyDictionary<int, int> parentByNode)
     {
-        var parentByNode = BuildParentMap(nodes);
         var memo = new Dictionary<int, Matrix>();
         var visiting = new HashSet<int>();
 
@@ -468,7 +485,7 @@ internal static class SceneRenderBuilder
         return memo;
     }
 
-    private static bool ShouldRenderNode(NodeInfo node, RenderSceneOptions options)
+    private static bool ShouldRenderNode(NodeInfo node, RenderSceneOptions options, IReadOnlyList<bool> visibleNodes)
     {
         if (options.HiddenNodeIndexes.Contains(node.Index))
         {
@@ -480,24 +497,9 @@ internal static class SceneRenderBuilder
             return true;
         }
 
-        return options.ShowHiddenNodes || node.Transform2D?.Display != false;
-    }
-
-    private static Dictionary<int, int> BuildParentMap(IReadOnlyList<NodeInfo> nodes)
-    {
-        var parentByNode = new Dictionary<int, int>();
-        for (var parentIndex = 0; parentIndex < nodes.Count; parentIndex++)
-        {
-            var seen = new HashSet<int>();
-            var childIndex = nodes[parentIndex].ChildIndex;
-            while (childIndex is int index && index >= 0 && index < nodes.Count && seen.Add(index))
-            {
-                parentByNode.TryAdd(index, parentIndex);
-                childIndex = nodes[index].SiblingIndex;
-            }
-        }
-
-        return parentByNode;
+        return node.Index >= 0 && node.Index < visibleNodes.Count
+            ? visibleNodes[node.Index]
+            : options.ShowHiddenNodes || node.Transform2D?.Display != false;
     }
 
     private static Matrix BuildLocalTransform(Transform2DInfo? transform)
@@ -509,7 +511,7 @@ internal static class SceneRenderBuilder
         var translateX = transform?.Translation?.X ?? 0.0;
         var translateY = transform?.Translation?.Y ?? 0.0;
         matrix.Scale(scaleX, scaleY);
-        matrix.Rotate(rotation);
+        matrix.Rotate(SbSceneTransformConventions.ToScreenRotationDegrees(rotation));
         matrix.Translate(translateX, translateY);
         return matrix;
     }
