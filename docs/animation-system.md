@@ -19,9 +19,9 @@
 | --- | --- | --- |
 | `ANIM` | `0x03` | 动画名，文件内常以 `V` 结尾，CLI 语义层会去掉该尾缀。 |
 | `ANIM` | `0x50` | declared motion count candidate。full survey 中除 1 个 `+2` 异常外均等于实际 motion 数；该异常不支持改名为 max track count，仍不能全局写成 confirmed count。 |
-| `ANIM` | `0x56` | declared/nominal end frame candidate；full survey 显示它常等于最大 track/key frame，但不是所有 track/key 的严格上界。 |
-| `ANIM` | `0x5F` | Byte/Bool-like raw flag。full survey 只见 `0/1`，运行时语义未知。 |
-| `MOT ` | `0x51` | NODE-index candidate；full survey 中 JP/EN 32,428/32,742 个 motion 均落在本文件 `NODE` 记录范围内，语义层据此反查节点名；运行时 target 角色未进一步确认。 |
+| `ANIM` | `0x56` | playback duration/end-frame 候选；full survey 显示它常等于最大 track/key frame，但不是所有 track/key 的严格上界。 |
+| `ANIM` | `0x5F` | default repeat flag；运行时复制到 layer repeat 数组初值，随后可由 `SbPlayerMO_SetAnimationRepeat` 覆盖。 |
+| `MOT ` | `0x51` | motion target node index；full survey 中 JP/EN 32,428/32,742 个 motion 均落在本文件 `NODE` 记录范围内，运行时也按该 index 绑定 cast。 |
 | `MOT ` | `0x52` | track 数量；full survey 中与 `MOT.ParamLow` 和实际 track 数全量一致。 |
 | `TRK ` | `0x53` | track type。 |
 | `TRK ` | `0x57` | keyframe 数量。Ras/Chiffon/Otohime 与 `KEY.ParamHigh / 5` 及实际解析 key 数完全一致；surfboard/surfboard_EN full survey 未发现 mismatch。 |
@@ -37,9 +37,9 @@
 
 full survey 的结构聚合显示，JP/EN 的 `ANIM` 字段顺序只有一种：`0x0050:0x0006>0x0003:0x0002>0x0056:0x0008>0x005F:0x0001`，覆盖 1,579/1,614 个动画。`ANIM.0x50` 与实际 motion 数匹配 1,578/1,613 个动画；唯一异常在 `MM_UI_Entry__MM_UI_Select_EntryName_ALL.sbscene` 的 `NameFadeIn`，`ParamLow=4`、`0x50=6`、实际 motion 数为 4。对该文件的原始 dump 显示 `NameFadeIn` 下 4 个 `MOT` 的 track 数为 `6,2,6,2`，因此 `0x50=6` 只是在这个异常里等于最大 motion track 数；新增 full-survey 交叉字段 `AnimationField50MotionOrMaxTrackRelationCounts` 显示 JP/EN 只有 1/1 个动画属于 `equalsMaxMotionTrackCountOnly`，其余为 `equalsMotionCountOnly` 1255/1280、`equalsMotionCountAndMaxMotionTrackCount` 278/287、`noMotions` 45/46。`ANIM.ParamLow` 与实际 motion 数匹配 1,167/1,170 个动画，另有 412/444 个动画为 `ParamLow = motion count + 1`。因此 `ANIM.ParamLow` 和 `ANIM.0x50` 只保留为 raw/count candidate，不作为全局硬规则。
 
-`ANIM.0x5F` 当前只确认字段类型和分布。JP/EN full survey 中 `AnimationField5FCounts` 为 `0=1438/1469`、`1=141/145`，未见其它值；`0x5F=1` 中有 motion 的动画为 136/140 个，无 motion 的动画为 5/5 个，因此它不是 motion-presence flag。它与 `ANIM.0x50` 的交叉显示 `0x5F=1` 时 `0x50` 全部等于实际 motion 数，但 `ANIM.ParamLow` 仍同时出现 `motion count` 与 `motion count + 1` 两类，且 `0x5F=0` 覆盖唯一 `0x50=+2` 异常。按动画名看，`0x5F=1` 大多出现在名称含 `loop` 的动画（JP/EN 为 127/131 个），但仍有 `Action`、`red_ef`、`life_*`、`Rating_Guard` 等反例；按 `0x56` 关系看也同时出现 `endEqualsMaxTrackLast`、`endContainsMaxTrackLast`、`endBeforeMaxTrackLast` 和 `noTrackLastFrames`。因此当前不把 `0x5F` 命名为 loop flag、playback flag、active flag 或 count modifier。
+`ANIM.0x5F` 在静态层面是 Byte/Bool-like raw flag。JP/EN full survey 中 `AnimationField5FCounts` 为 `0=1438/1469`、`1=141/145`，未见其它值；`0x5F=1` 中有 motion 的动画为 136/140 个，无 motion 的动画为 5/5 个，因此它不是 motion-presence flag。运行时 `AnimationContainer_BuildMotionLookup` 将对应 entry 的 `+0x20C` 复制到 default repeat 数组，`Layer_InitRuntimeFromData` (`sub_7DC8D0`) 再把它作为 `Layer+0x2C repeat[animation]` 初值；之后 `SbPlayerMO_SetAnimationRepeat` 可覆盖该值。因此它可命名为 default repeat flag，而不是 active flag 或 count modifier。
 
-`ANIM.0x56` 当前只收紧为 declared/nominal end frame candidate。它相对最大 `TRK.0x59` 的 full-survey 关系为 JP/EN `endEqualsMaxTrackLast=1396/1428`、`endContainsMaxTrackLast=91/93`、`endBeforeMaxTrackLast=47/47`、`noTrackLastFrames=45/46`；相对最大 `KEY.0x5A` 的 delta 统计为 `0=1394/1426`、negative total `47/47`、positive total `93/95`、`noKeyFrames=45/46`。Shama 样本中多个 `Action_*` 动画为 `0x56=150/200`，但 track/key 最大帧可延伸到 `154..227`；多个 `Mouth_*` 动画则在 `146` 提前结束。因此 `0x56` 不写成所有 track/key 的严格最大帧或裁剪边界。
+`ANIM.0x56` 运行时被复制为 playback duration/end-frame，并由 `Layer_SetAnimationTime` 用于 wrap/clamp。它相对最大 `TRK.0x59` 的 full-survey 关系为 JP/EN `endEqualsMaxTrackLast=1396/1428`、`endContainsMaxTrackLast=91/93`、`endBeforeMaxTrackLast=47/47`、`noTrackLastFrames=45/46`；相对最大 `KEY.0x5A` 的 delta 统计为 `0=1394/1426`、negative total `47/47`、positive total `93/95`、`noKeyFrames=45/46`。Shama 样本中多个 `Action_*` 动画为 `0x56=150/200`，但 track/key 最大帧可延伸到 `154..227`；多个 `Mouth_*` 动画则在 `146` 提前结束。因此 `0x56` 不写成所有 track/key 的严格最大帧或裁剪边界。
 
 `MOT` 的结构更稳定：JP/EN 的 32,428/32,742 条 `MOT` 字段顺序只有一种 `0x0051:0x0005>0x0052:0x0006`，`MOT.ParamLow`、`MOT.0x52` 和实际 track 数三者全量一致，`0x51` 全部在 NODE index 范围内。JP/EN 的 94,611/95,558 条 `TRK` 只有一种字段顺序：`0x0053:0x0006>0x0057:0x0006>0x0054:0x0009>0x0058:0x0008>0x0059:0x0008`。实际 key record 为 JP/EN 186,780/188,002 条，各自只有 4 种字段顺序，差异只在 `0x5B` 的 type code；`0x5A/0x5C/0x5D/0x5E` 的字段类型保持一致。key frame 序列全部非递减，但不是全局严格递增：JP/EN 各有 2 条 duplicate-frame track，均来自两个 UI 场景的 `FadeIn -> cover` type 24 alpha 轨道。
 
@@ -81,7 +81,7 @@ Ras 样本中 5,193 条 `TRK` 的 `0x57` 都与后续 `KEY` 块声明的 key 数
 | 6 | 225 | `ScaleX` | scale X 候选。 |
 | 7 | 401 | `ScaleY` | scale Y 候选。 |
 | 8 | 10 | `ScaleZCandidate` | 与 `7/8` 缩放组出现，Ras 中全为单 key 且值为 1。 |
-| 11 | 745 | `Display` | display/visibility 候选；`Change_Fashion` 和 `Change_Accessory` 中大量出现。 |
+| 11 | 745 | `Display` | 运行时 display/visibility 开关；`Change_Fashion` 和 `Change_Accessory` 中大量出现。 |
 | 12 | 74 | `MouthShapeA` | 口型/表情相关候选。 |
 | 13 | 73 | `MouthShapeB` | 口型/表情相关候选。 |
 | 18 | 81 | `PrimaryImageVariantIndexCandidate` | Int32 状态轨道，20 个目标节点均有 CIMG；Ras 中 key value 全部落在对应 CIMG primary CREF 组范围内。 |
@@ -119,6 +119,22 @@ survey JSON 现在输出 `TrackFlagExtra*` 交叉聚合。`0x100` 出现在 JP/E
 
 这使 `11(Display)` 的服饰/饰品开关和 `18(PrimaryImageVariantIndexCandidate)` / `19(SecondaryImageVariantIndexCandidate)` 的图片变体/裁剪索引轨道可以与普通 float 曲线区分开。`0x43` 不再写成已确认 `PackedFloat32`；在 Ras 的旋转轨道上下文中只按 packed/fixed angle 候选记录，具体 bit 语义仍待确认。
 
+## 运行时轨道求值证据
+
+已在 32-bit `maimai_dump_.exe` 中复核播放器路径：`Player_UpdateLayers` (`sub_891FB0`) 遍历 `Player` 持有的 layer handle，调用 `LayerHandle_Update` (`sub_7CCDA0`)；后者进入 `Layer_UpdateActiveAnimations` (`sub_7D15E0`)。`Layer_UpdateActiveAnimations` 只在 `Layer+0xD0` enabled 为真时工作，逐 cast、逐 animation index 取 motion lookup，然后用 `Layer+0x28` 的 animation enabled 数组和 `Layer+0x24` 的当前 animation time 调用 `Cast_EvaluateMotionTracks` (`sub_7D30C0`)。
+
+`SbPlayerMO_SetLayerEnabled` (`sub_896560`) 是 layer 开关 API；`SbPlayerMO_SetAnimationEnabled` (`sub_8967A0`) 写入 `Layer+0x28 enabled[animation]`；`SbPlayerMO_SetAnimationRepeat` (`sub_896680`) 写入 `Layer+0x2C repeat[animation]`；`SbPlayerMO_SetAnimationTime` (`sub_896710`) 写入 `Layer+0x24 time[animation]`。设计查看器的 `sub_40B520` 选择动画时正是启用目标 animation、关闭其它 animation、设置 repeat 并把 time seek 到 `0.0`。这些 API 不是设计查看器专用：xref 中 `SetLayerEnabled` 有 102 处引用/42 个 caller，`SetAnimationEnabled` 有 93 处引用/46 个 caller。例如 `SurfboardWrapper_EnableAnimationAtTime` (`sub_5C9440`，536 处引用/261 个 caller) 这个通用 helper 会启用逻辑 animation 并设置时间；`SbMMRasWrapper_Update` (`sub_60A850`) 内有 9 处调用该 helper，用状态帧推进 Ras 的角色动画。
+
+`AnimationContainer_BuildMotionLookup` (`sub_7DC3B0`) 在 layer 初始化时建立 `castIndex x animationIndex` lookup：运行时 `ANIM+0x200` 是 motion 数，`ANIM+0x204` 是 `MOT` 表指针，每条 `MOT` 的前 2 字节目标节点索引用于把 motion 绑定到 cast。`ANIM+0x208` 被复制为 duration/default end frame，供 `Layer_SetAnimationTime` wrap/clamp；`ANIM+0x20C` 被复制为 default repeat flag。静态 `ANIM.0x56` 因而是播放 duration/end-frame 候选，`ANIM.0x5F` 可提升为 default repeat flag；`ANIM.0x50` 仍按 raw/declared motion count 处理，因为 full survey 中还有一个 raw mismatch。
+
+`Cast_EvaluateMotionTracks` 为每条 `TRK` 建立目标字段表并调用 `Cast_EvaluateTrack` (`sub_7D4F50`) 求值。普通 track 按 `TRK+0x1C` 选择标量/向量求值，写入目标对象字段；`TRK+0x18` 继续对应 key value storage/interpolation 分支。
+
+`type 11(Display)` 是运行时可见性轨道。`sub_7D30C0` 将它写到 cast 对象 `this+0x168`，并置 `this+0x11D` dirty；`sub_7D1FC0` 在遍历节点树时把父 cast 的最终可见字段 `this+0xD0` 传给子 cast；`Cast_UpdateRenderState` (`sub_7D4720`) 再组合本节点 display 与父级状态。组合规则是：`this+0x168` 为 0 时最终 `this+0xD0=0`；`this+0x168` 为 1 且 cast/static record `+0x218` 为 1 时，最终值继承父节点可见性；`+0x218` 为 0 时，本节点 local true 直接使最终值为 1。因此 `Display` 可从候选提升为已确认的本节点显示开关；它不是图片变体索引。
+
+`type 18/19` 是两组图片引用槽的运行时索引。`sub_7D4F50` 对 `18` 操作 slot 0 的 `this+0xE0/+0xE2`，对 `19` 操作 slot 1 的 `this+0xF8/+0xFA`；若手动 override 字段为非负则直接使用 override，否则进入 `sub_7D50A0`。`sub_7D50A0` 先用关键帧求出组内 index，再经 `sub_7D5590` 映射到 CAST/CREF 图块并把 4 个图块坐标复制到 `this+0xE4..0xF0` 或 `this+0xFC..0x108`；`TRK+0x1C == 3` 时还会经 `sub_7D51D0/sub_7D5740` 在两组图块坐标之间插值。`sub_7D1FC0` 将两组 slot index 传入 `sub_7D4960`，输出构建函数 `sub_7DAE10/sub_7DB530` 再展开为 CAST index、CREF index 和 UV/矩形坐标。因此 `18` 是 primary image slot index，`19` 是 secondary image slot index。
+
+静态 `CIMG.0x45` 与 type 18/19 最早 key 经常一致，是对应 primary/secondary 组的静态 fallback/default index；运行时 type 18/19 会在播放时覆盖当前 slot。由于 full survey 已显示二者不是全覆盖一致，`CIMG.0x45` 仍不能命名为动画当前值或选中状态。
+
 type 18 / 19 现在也进入 group-specific full survey 校验，语义层命名分别为 `PrimaryImageVariantIndexCandidate` 和 `SecondaryImageVariantIndexCandidate`。旧的 `ImageVariant*` 字段仍保留 type 18 的 primary+secondary 合计宽松检查，仅用于兼容早期统计；新增 `ImageVariantGroup*` 字段按 CIMG 的 primary/secondary CREF 组分别检查 `18 primary` 和 `19 secondary`。校验规则是：用 motion target node 找到对应 CIMG，取目标节点对应 CREF 组的记录数，逐个 key value 检查它是否为整数且满足 `0 <= value < group CREF count`。结果如下：
 
 | Survey | Group | Tracks | Keys | Tracks with CIMG | Track range matches | Keys in range | Out / non-int / missing |
@@ -139,7 +155,7 @@ type 18 primary 目标节点的 CREF count 分布覆盖 1..16，其中 2、3、4
 | surfboard_EN | `18 primary` | 1,534 | 257 mismatch + 1 multi-CIMG target |
 | surfboard_EN | `19 secondary` | 332 | 1 mismatch |
 
-因此 `CIMG.0x45` 可以确认是静态存储的 primary/secondary 组内 index，并且经常与变体轨道起始值一致；但该关系不是全覆盖，不能全局命名为动画初始 key、默认引用、当前引用或选中引用。播放逻辑如何组合 type 18/19、`CIMG.0x45` 和其它渲染状态仍待确认。
+因此 `CIMG.0x45` 可以确认是静态存储的 primary/secondary 组内 fallback/default index，并且经常与变体轨道起始值一致；但该关系不是全覆盖，不能全局命名为动画初始 key、当前引用或选中引用。运行时代码确认 type 18/19 会覆盖两组当前图片 slot，display 则由 type 11 独立控制。
 
 按 `base byte = flags & 0xFF` 的 nibble 汇总；extra mask 不参与 high nibble 计算：
 
@@ -171,7 +187,7 @@ type 18 primary 目标节点的 CREF count 分布覆盖 1..16，其中 2、3、4
 | 27 | `IlluminationColorBCandidate` | 4 | 4 | `0x13` / Float32 | `0,1` | illumination B 通道候选。 |
 | 28 | `IlluminationAlphaCandidate` | 4 | 4 | `0x13` / Float32 | `1` | illumination alpha 候选。 |
 
-这说明 type 18 已经有强结构证据可按 primary 图片变体索引候选处理；新增 group-specific full survey 也确认了 type 19 的 secondary 组范围关系。播放时如何与 `CIMG.0x45` 的组内 raw index 和渲染状态组合仍未确认，且 `CIMG.0x45` 不能直接命名为 type 18/19 的默认、当前或选中状态。
+这说明 type 18 已经有强结构证据和运行时证据可按 primary 图片变体索引处理；新增 group-specific full survey 也确认了 type 19 的 secondary 组范围关系。运行时使用 `CIMG.0x45` 对应的静态组内 index 作为 fallback/default，再由 type 18/19 覆盖当前 slot；`CIMG.0x45` 仍不能直接命名为当前或选中状态。
 
 full survey 现在输出 `TransformTrack*` 聚合。type `0/1/5/6/7` 能绑定目标 `TRS2` 初始通道，type `2/3/4/8` 没有可比的 `TRS2` 初始通道，但全部 key 都等于候选默认值：`2=0`、`3=0`、`4=0`、`8=1`。这只确认存储和值域，不确认 Z 轴或 X/Y rotation 的运行时语义，也不能写成初始化规则。
 
@@ -269,10 +285,10 @@ Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type
 
 | Animation | Node | Track types | 结论 |
 | --- | --- | --- | --- |
-| `Change_Fashion` | `plain_apron_ribon`、`uniform_cap_L`、`plain_onepiece_body` 等 | 主要 `11(Display)`，少量 `18`、`0/1`、`5` | Ras 中 display 候选轨道集中在服饰部件，少量节点还带 primary image variant、位置/旋转候选轨道。 |
-| `Change_Accessory` | `accessory_L_fruittea`、`tray`、`coffecup`、`bread` 等 | `11(Display)` | Ras 中这些饰品/道具节点只观察到 display 候选轨道。 |
+| `Change_Fashion` | `plain_apron_ribon`、`uniform_cap_L`、`plain_onepiece_body` 等 | 主要 `11(Display)`，少量 `18`、`0/1`、`5` | Ras 中 display 轨道集中在服饰部件，少量节点还带 primary image slot、位置/旋转轨道。 |
+| `Change_Accessory` | `accessory_L_fruittea`、`tray`、`coffecup`、`bread` 等 | `11(Display)` | Ras 中这些饰品/道具节点只观察到 display 轨道。 |
 | `Mouth_Wait1` | `koukando01_mouth` | `12`、`13`、`18`，并带 `0/1/6/7` | Ras 中嘴部节点带 mouth-shape 候选、primary image variant index 候选和局部 transform 候选轨道。 |
-| `Action_Wait1` | `Ras_null`、`tail`、服饰飘带、身体部件等 | 主要 `5(RotateZ)`，并带 `0/1/6/7/11` | Ras 中以旋转候选轨道为主，同时有平移、缩放和 display 候选轨道。 |
+| `Action_Wait1` | `Ras_null`、`tail`、服饰飘带、身体部件等 | 主要 `5(RotateZ)`，并带 `0/1/6/7/11` | Ras 中以旋转候选轨道为主，同时有平移、缩放和 display 轨道。 |
 | `DressChange` | `Ras_root`、`Ras_null`、身体/服饰部件 | 包含动作动画同类 transform track，并含 `24(AlphaOrOpacity)` | Ras 中同时出现 transform 与 alpha/opacity 候选轨道；是否存在额外状态机仍未确认。 |
 
 ## 状态轨道识别
@@ -282,7 +298,7 @@ Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type
 - track 名称包含 `visible`、`visibility`、`display`、`alpha`、`opacity`、`hide`、`show`、`state`、`enable`、`disable`、`onoff`。
 - 或该 track 的 key value 候选值按 survey 二值判定规则全部命中 `0` 或 `1`。
 
-这类 track 会生成 `VariantHint`，`SourceKind = TrackState`。它只表示“可见性/状态开关候选”，不表示已确认运行时开关逻辑。
+这类 track 会生成 `VariantHint`，`SourceKind = TrackState`。对 type 11 来说，运行时代码已确认它是 display/visibility 开关；对 type 18/19/24 等其它状态候选，仍需要按各自运行时消费者或样本交叉证据解释。
 
 ## 状态/开关轨道摘要
 
@@ -300,14 +316,16 @@ Ras 中三类状态候选总量：
 
 | Animation | Display | Primary variant | Secondary variant | Alpha/Opacity | 观察 |
 | --- | ---: | ---: | ---: | ---: | --- |
-| `Change_Fashion` | 105 | 6 | 0 | 0 | Ras 中服饰组主要带 display 候选轨道，少量节点带 type 18 primary CREF 组内 index 轨道。 |
-| `Change_Accessory` | 8 | 0 | 0 | 0 | Ras 中这 8 条状态候选轨道全是 display；未见 type 18/19/24。 |
+| `Change_Fashion` | 105 | 6 | 0 | 0 | Ras 中服饰组主要带 display 轨道，少量节点带 type 18 primary image slot 轨道。 |
+| `Change_Accessory` | 8 | 0 | 0 | 0 | Ras 中这 8 条状态轨道全是 display；未见 type 18/19/24。 |
 | `FadeIn1` | 1 | 0 | 0 | 2 | Ras 中同时有 display 与 alpha/opacity 候选轨道。 |
 | `Effect_Heart1` | 2 | 0 | 0 | 13 | Ras 中该动画含 13 条 alpha/opacity 候选轨道。 |
 | `Mouth_*` | 多数动画 1 | 每个口型 motion 至少 1 | 0 | 0 | Ras 中口型 motion 普遍带 type 18，key value 落在嘴部 CIMG primary CREF 组范围内。 |
 | `DressChange` | 40 | 3 | 0 | 0 | Ras 中同时有 display 和少量 primary image variant 候选轨道。 |
 
-`PrimaryImageVariantIndexCandidate` 的 key value 在 Ras 中全部通过 primary CREF 组范围检查。结合已核对的分组范围检查逻辑，type 18 按 primary CREF 组范围理解；type 19 按 secondary CREF 组范围理解。例如 `forearm_L01` 的 values 为 `0,1,2`，对应 primary image refs；多个嘴部节点的 type 18 key 落在 2-4 条 primary 口型/表情 image refs 范围内。full survey 中 `CIMG.0x45` 与最早 key 只是高比例对齐，不是全覆盖关系，因此状态轨道摘要不把 `0x45` 当作默认/当前/选中状态来源。
+`PrimaryImageVariantIndexCandidate` 的 key value 在 Ras 中全部通过 primary CREF 组范围检查。结合已核对的分组范围检查逻辑和运行时 slot 写入逻辑，type 18 按 primary CREF 组范围理解；type 19 按 secondary CREF 组范围理解。例如 `forearm_L01` 的 values 为 `0,1,2`，对应 primary image refs；多个嘴部节点的 type 18 key 落在 2-4 条 primary 口型/表情 image refs 范围内。full survey 中 `CIMG.0x45` 与最早 key 只是高比例对齐，不是全覆盖关系，因此状态轨道摘要不把 `0x45` 当作当前/选中状态来源。
+
+Ras 的服饰/饰品状态由“启用对应 animation + seek 到状态帧”驱动，而不是由 type 18/19 单独驱动。`Change_Fashion` 的 type 11 display keys 在 frame `0..3` 上切换 plain/uniform/gorgeous 等部件；`Change_Accessory` 同样用 frame `0..3` 切换手部道具，`tray` 在 frame 1 与 frame 3 为 true，按 step/hold 在 frame 2 也保持显示。运行时链路是：上层调用 `SbPlayerMO_SetAnimationEnabled/SetAnimationTime` 选择 animation 和 frame，`Layer_UpdateActiveAnimations` 把该时间传给 `Cast_EvaluateMotionTracks`，最终每个 cast 的 type 11 写入可见性。
 
 ## 命名模式
 
@@ -337,6 +355,6 @@ Ras 中三类状态候选总量：
 - `TRK.flags` base byte 的低 nibble `0x3` 的 bit 含义；base byte 高 nibble 与 key value storage 的关系在 JP/EN full survey 中已稳定，但仍只作为存储分类，不命名低位 bit 业务语义。
 - `TRK.flags` base byte `0x43` / storage nibble `0x4` 的 storage 名称当前写作 `PackedAngleCandidate`；signed fixed-angle raw int 只是旋转上下文的解释候选，仍不是已确认 packed float。
 - `KEY.0x5C/0x5D/0x5E` 的准确插值和 tangent 语义。
-- 可见性、图片变体、材质、贴图切换是否由统一运行时状态机消费。
-- `CIMG.0x45` 与 type 18/19 起始 key 经常一致但不是全覆盖；默认、当前、选中等高层状态命名仍需播放/渲染代码证据。
+- 更高层游戏逻辑如何给 `SbPlayerMO_SetAnimationEnabled/SetAnimationTime` 传入具体服饰、饰品和动作状态。
+- `CIMG.0x45` 与 type 18/19 起始 key 经常一致但不是全覆盖；运行时可作为静态 fallback/default slot index 理解，但不能命名为当前或选中状态。
 - `DressChange` 是否只是复合动画，还是有额外状态机字段。

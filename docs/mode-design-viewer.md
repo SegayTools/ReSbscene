@@ -135,18 +135,18 @@ game::sequence::ModeDesignViewer
 | `I` keycode `73` | 切换基类 overlay 显示 | 改写 `this+0x78`。 |
 | `'1'..'9'` keycode `49..57` | 选择 layer | 调用 `sub_40B4A0(this, digitIndex + modifier)`。 |
 | keycode `159..167` | 选择 animation 或基类 DDS | 无 modifier 时调用 `sub_40B520(this, currentLayer, index)`；有 modifier 时走 `ModeSpriteViewer` 的 DDS 选择路径。具体物理键未从本函数确认。 |
-| `R` keycode `82` | 切换 repeat flag | 改写 `0xFC`，并在 `sub_40B520` 中传给 `sub_896680`。 |
+| `R` keycode `82` | 切换 repeat flag | 改写 `0xFC`，并在 `sub_40B520` 中传给 `SbPlayerMO_SetAnimationRepeat` (`sub_896680`)。 |
 | `T` keycode `84` | 切换 scene pair flag | 改写 `0xFD`，影响 `sub_40A780` 使用哪组 `SCENE_SBF*` resource key。 |
 | `E` keycode `69` | reload | 把状态回调设为 `sub_40B480`。 |
 
-`sub_40B4A0` 选择 layer：遍历 controller 的 layer 数，只有目标 layer 调用 `sub_896560(..., 1)`，其它 layer 调用 `sub_896560(..., 0)`。它同时把 selected layer index 写到 `0xDC`，把 `sub_8969A0(controller, index)` 返回的名称写到 `0x100 currentLayerName`，并清空 `0x11C currentAnimationName`。
+`sub_40B4A0` 选择 layer：遍历 controller 的 layer 数，只有目标 layer 调用 `SbPlayerMO_SetLayerEnabled` (`sub_896560`, value `1`)，其它 layer 调用同一 API 关闭。它同时把 selected layer index 写到 `0xDC`，把 `SbPlayerMO_GetLayerName` (`sub_8969A0`) 返回的名称写到 `0x100 currentLayerName`，并清空 `0x11C currentAnimationName`。
 
-`sub_40B520` 选择 animation：先用 `sub_896920(controller, layer)` 取得 animation 数，再对目标 animation 调用：
+`sub_40B520` 选择 animation：先用 `SbPlayerMO_GetAnimationCount` (`sub_896920`) 取得 animation 数，再对目标 animation 调用：
 
-- `sub_8967A0(controller, layer, animation, 1)` 设为选中；
-- `sub_896680(controller, layer, animation, repeatFlag)` 传入 `0xFC`；
-- `sub_896710(controller, layer, animation, 0.0)` 清某个播放/时间参数 candidate；
-- `sub_896A10(controller, layer, animation)` 取动画名写到 `0x11C currentAnimationName`。
+- `SbPlayerMO_SetAnimationEnabled` (`sub_8967A0`, value `1`) 设为选中；
+- `SbPlayerMO_SetAnimationRepeat` (`sub_896680`) 传入 `0xFC`；
+- `SbPlayerMO_SetAnimationTime` (`sub_896710`, `0.0`) 把当前 animation time seek 到起点；
+- `SbPlayerMO_GetAnimationData` (`sub_896A10`) 取动画名写到 `0x11C currentAnimationName`。
 
 其它 animation 只调用 `sub_8967A0(..., 0)` 取消选择。
 
@@ -212,4 +212,3 @@ repeat : ON/OFF
 | `sub_89CD10` / `sub_899CC0` 等类型名 | 代码显示它们是 parsed model 和 controller/wrapper 类。 | IDA 当前符号未给出真实 C++ 类型名。 |
 | `.sbscene` 扫描策略 | `sub_40AB50` 取第一个匹配项并保存路径。 | 文件枚举顺序由 helper 实现决定，本文不推断排序规则。 |
 | controller 虚函数 `+0x48/+0x50` | `sub_40A780` 用它们提交 resource key 和 `1.0`。 | 具体渲染语义仍需继续沿 controller 类型反查。 |
-

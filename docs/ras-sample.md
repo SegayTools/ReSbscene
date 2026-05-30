@@ -161,15 +161,40 @@ TRS2 字段统计：
 
 ## 动画到节点绑定摘要
 
-`MOT.0x51` 在 Ras 样本中可映射到 `NODE` 记录 index，当前 2,736 个 motion 都能生成动画到节点候选绑定。该绑定让服饰/动作/口型轨道可以落到具体部件上核对；运行时 target 角色仍未进一步确认。
+`MOT.0x51` 在 Ras 样本中可映射到 `NODE` 记录 index，当前 2,736 个 motion 都能生成动画到节点绑定。运行时 `AnimationContainer_BuildMotionLookup` 也按 `MOT` 前 2 字节目标节点索引建立 `castIndex x animationIndex` lookup，因此该字段可作为 motion target node index 使用。
 
 | Animation | 绑定节点样例 | Track type 分布/线索 |
 | --- | --- | --- |
-| `Change_Fashion` | `plain_apron_ribon`、`uniform_cap_L`、`plain_onepiece_body`、`gorgeous_L_boots_*` | 114 条 track 中 105 条为 `11(Display)`；display 候选轨道集中在服饰部件，少量节点带 `18(PrimaryImageVariantIndexCandidate)`、`0/1(Translate)`、`5(RotateZ)` 候选轨道。 |
-| `Change_Accessory` | `accessory_L_fruittea`、`accessory_L_coffe`、`accessory_L_kettle`、`tray`、`coffecup`、`bread`、`pancake` | 8 条 track 全部为 `11(Display)`，只记录为 display 状态候选轨道。 |
+| `Change_Fashion` | `plain_apron_ribon`、`uniform_cap_L`、`plain_onepiece_body`、`gorgeous_L_boots_*` | 114 条 track 中 105 条为 `11(Display)`；display 轨道集中在服饰部件，少量节点带 `18(PrimaryImageVariantIndexCandidate)`、`0/1(Translate)`、`5(RotateZ)` 轨道。 |
+| `Change_Accessory` | `accessory_L_fruittea`、`accessory_L_coffe`、`accessory_L_kettle`、`tray`、`coffecup`、`bread`、`pancake` | 8 条 track 全部为 `11(Display)`，构成饰品 display 状态表。 |
 | `Mouth_Wait1` | `koukando01_mouth`、`ef_action` | 嘴部节点含 `12(MouthShapeA)`、`13(MouthShapeB)`、`18(PrimaryImageVariantIndexCandidate)` 和局部 transform；`ef_action` 使用 `11(Display)`。 |
 | `Action_Wait1` | `Ras_null`、`tail`、`plain_apron_ribon*`、`top03`、`hair_back_*` | 以 `5(RotateZ)` 为主，并包含 `0/1(Translate)`、`6/7(Scale)` 和部分 `11(Display)`。 |
 | `DressChange` | `Ras_root`、`Ras_null`、身体与服饰部件 | 包含动作动画同类 transform track，另含 `24(AlphaOrOpacity)`；只记录为 transform 与 alpha/opacity 候选轨道共现。 |
+
+## Ras 服饰/饰品运行时链路
+
+运行时链路现在可以闭合到 Ras 的服饰样本：游戏侧 wrapper 通过 `SurfboardWrapper_EnableAnimationAtTime` (`sub_5C9440`) 映射逻辑 animation，调用 `SbPlayerMO_SetAnimationEnabled` 选择 animation，再由 `SbPlayerMO_SetAnimationTime` 把该 animation seek 到状态帧；`Layer_UpdateActiveAnimations` 再用该时间调用 `Cast_EvaluateMotionTracks`。因此 `Change_Fashion`/`Change_Accessory` 这类动画可以作为状态表使用；关键帧多数是 step/constant，frame 值本身就是状态编号。
+
+`Change_Fashion` 中有 105 条 type 11 display 轨道。按 step/hold 方式在 frame `0..3` 复算，display=true 数分别为 `42/47/44/38`：frame 1 以 `plain_*` 为主，frame 2 以 `uniform_*` / `unifrom_*` 为主，frame 3 以 `gorgeous_*` 为主；frame 0 还包含部分 plain、腿部、耳部和高光/基础部件。少量 `upperarm/forearm/hand` 节点同时带 type 18 primary image slot 轨道，但这些只切图，不负责开关可见性。
+
+| Frame | Fashion display=true 摘要 | type 18 primary slot 变化 |
+| ---: | --- | --- |
+| 0 | 42 个；`plain_lace_*`、`plain_wristband_*`、`plain_onepiece_*`、`plain_shoes_*` 等 | 6 条均为 slot `0` |
+| 1 | 47 个；新增 `plain_apron_ribon`、`plain_apron_*` 头饰/围裙部件 | 6 条仍为 slot `0` |
+| 2 | 44 个；`uniform_*` / `unifrom_*` 服饰、mofu、cap、apron 部件 | `forearm_L01`、`forearm_R03`、`forearm_L02a`、`hand_L02a` 切到 slot `1` |
+| 3 | 38 个；`gorgeous_*` 翅膀、靴子、裙子、body/top 与右手部件 | `upperarm_L01`、`hand_L01`、`hand_L02a` 为 slot `1`，`forearm_*` 为 slot `2` |
+
+`Change_Accessory` 的 8 条状态轨道全是 type 11 display。样本 key 可直接读作饰品状态表；其中 `tray` 在 frame 1 与 frame 3 都有 true key，按 step/hold 复算时 frame 2 也保持 true。
+
+| Frame | Display=true 节点 |
+| ---: | --- |
+| 0 | `hand_L01` |
+| 1 | `accessory_L_fruittea`、`tray`、`pancake` |
+| 2 | `accessory_L_coffe`、`tray`、`coffecup` |
+| 3 | `accessory_L_kettle`、`bread`、`tray` |
+
+这说明 Ras 的多套服饰/饰品不是靠 `CIMG.0x45` 或 type 18/19 选择“当前套装”。上层只需要启用对应 `Change_*` animation 并设置状态帧，实际显隐由每个目标 cast 上的 type 11 写入本节点 display，再由 `Cast_UpdateRenderState` 结合父节点最终可见性和 cast/static record `+0x218` 得出最终 `Cast+0xD0`。`Change_Fashion` 里的 6 条 type 18 只在 `upperarm/forearm/hand` 节点切 primary image slot；`Change_Accessory` 没有 type 18/19。
+
 
 ## Track flags 与 KEY 插值摘要
 
@@ -232,10 +257,11 @@ Ras 总量：
 
 关键结论：
 
-- `Change_Fashion` 有 105 条 display 候选轨道和 6 条 image variant 候选轨道；个别节点的 type 18 key value 落在多条 primary CREF 范围内。
-- `Change_Accessory` 的 8 条状态候选轨道全是 display；未见 type 18/24。
+- `Change_Fashion` 有 105 条 display 轨道和 6 条 primary image slot 轨道；个别节点的 type 18 key value 落在多条 primary CREF 范围内。
+- `Change_Accessory` 的 8 条状态轨道全是 display；未见 type 18/24。
 - `Mouth_*` 口型动画普遍包含 type 18，关键帧值落在对应嘴部 CIMG primary CREF 组范围内。
 - Ras 中没有 type 18 的 primary CREF group range mismatch；当前 `ImageRefCheck` 按 primary 组检查，legacy 合计 CREF 宽松统计也全部通过。
+- 运行时代码已确认 `11(Display)` 写入本节点显示开关并最终决定 cast 可见性；`18` 写入 primary 图片 slot，`19` 写入 secondary 图片 slot。Ras 样本没有 type 19，但 full survey 和 runtime 分支都支持 secondary slot 解释。
 
 ## 纹理资源
 
@@ -278,7 +304,7 @@ YABX descriptor 也新增了 schema-to-object 使用证据：例如 `stevia::Dat
 
 `CIMG.0x44` 已更新为 primary/secondary 两组 CREF 记录数，而不是 flag。Ras 中 304 个 image cast 的 `0x44` 与后续 CREF 组记录数完全匹配，12 个 image cast 带 secondary CREF，主要出现在 eye/hair_front 节点。`CIMG.0x45` 是 primary/secondary 组内引用 index raw 值，所有值都小于对应组记录数。
 
-`CIMG.0x45` 只有 8 个 image cast 非零，全部能指向有效引用；例如 `kirakira_eye` 的 `(4,1)/(2,0)` 可索引到 primary `0:47` 和 secondary `0:42`，`forearm_L02` 的 `(3,0)/(2,0)` 可索引到 `3:43`。因此当前只确认 `0x45` 是 primary/secondary 组内 crop reference index；默认/当前/选中等运行时角色仍需确认。
+`CIMG.0x45` 只有 8 个 image cast 非零，全部能指向有效引用；例如 `kirakira_eye` 的 `(4,1)/(2,0)` 可索引到 primary `0:47` 和 secondary `0:42`，`forearm_L02` 的 `(3,0)/(2,0)` 可索引到 `3:43`。因此当前确认 `0x45` 是 primary/secondary 组内 crop reference index，并在运行时作为 fallback/default slot index；它仍不能命名为当前或选中状态。
 
 `CIMG.0x48` 已从 raw value 进一步拆成 bit 分布，并在主报告里输出节点 flags、节点组、初始 display、multi/secondary CREF、非零 `0x45` index 和 bit 共现表。后续 loader/xref 复核显示该字段不是 CIMG 私有 flags，而是跨 `CNUM/CSLI/TEX/SLIC` 等资源复用的 packed state word。Ras 中 bit 15 在 304 个 image cast 上全部设置；后续 full survey 显示 bit 15 是高覆盖 CIMG 位但非全局必有，因此不命名语义。bit 0 只出现在 9 个 `04_present_eff`、`*_add`、`hart_*` 节点上，且是 bit 22 的子集；这只作为名称/分组相关性，不确认混合或渲染语义。bit 20、21、22、23 仍只记录为 CIMG 样本高位共现关系。
 
