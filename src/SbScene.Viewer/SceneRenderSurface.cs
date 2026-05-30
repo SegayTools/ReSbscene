@@ -15,10 +15,12 @@ internal sealed class SceneRenderSurface : FrameworkElement
     private static readonly Pen AxisYPen = new(new SolidColorBrush(Color.FromRgb(92, 151, 118)), 1);
     private static readonly Pen PlaceholderPen = new(new SolidColorBrush(Color.FromRgb(92, 103, 117)), 1);
     private static readonly Pen HighlightPen = new(new SolidColorBrush(Color.FromRgb(219, 142, 35)), 2);
+    private static readonly Pen ChildHighlightPen = new(new SolidColorBrush(Color.FromRgb(31, 137, 152)), 1.5);
     private static readonly Typeface LabelTypeface = new("Segoe UI");
 
     private RenderScene? _scene;
-    private int? _highlightedNodeIndex;
+    private HashSet<int> _highlightedNodeIndexes = [];
+    private int? _primaryHighlightedNodeIndex;
     private double _zoom = 1;
 
     public RenderScene? Scene
@@ -34,10 +36,31 @@ internal sealed class SceneRenderSurface : FrameworkElement
 
     public int? HighlightedNodeIndex
     {
-        get => _highlightedNodeIndex;
+        get => _highlightedNodeIndexes.Count == 1 ? _highlightedNodeIndexes.First() : null;
         set
         {
-            _highlightedNodeIndex = value;
+            _primaryHighlightedNodeIndex = value;
+            _highlightedNodeIndexes = value is null ? [] : [value.Value];
+            InvalidateVisual();
+        }
+    }
+
+    public int? PrimaryHighlightedNodeIndex
+    {
+        get => _primaryHighlightedNodeIndex;
+        set
+        {
+            _primaryHighlightedNodeIndex = value;
+            InvalidateVisual();
+        }
+    }
+
+    public IReadOnlySet<int> HighlightedNodeIndexes
+    {
+        get => _highlightedNodeIndexes;
+        set
+        {
+            _highlightedNodeIndexes = value.ToHashSet();
             InvalidateVisual();
         }
     }
@@ -106,6 +129,8 @@ internal sealed class SceneRenderSurface : FrameworkElement
                 DrawItem(drawingContext, item);
             }
 
+            DrawSelectionBounds(drawingContext, Scene);
+
             drawingContext.Pop();
         }
 
@@ -158,12 +183,47 @@ internal sealed class SceneRenderSurface : FrameworkElement
 
         drawingContext.Pop();
 
-        if (HighlightedNodeIndex == item.NodeIndex)
+        drawingContext.Pop();
+    }
+
+    private void DrawSelectionBounds(DrawingContext drawingContext, RenderScene scene)
+    {
+        if (_highlightedNodeIndexes.Count == 0)
         {
-            drawingContext.DrawRectangle(null, HighlightPen, item.LocalRect);
+            return;
         }
 
-        drawingContext.Pop();
+        var bounds = Rect.Empty;
+        var boundsByNode = new Dictionary<int, Rect>();
+        foreach (var item in scene.Items)
+        {
+            if (_highlightedNodeIndexes.Contains(item.NodeIndex))
+            {
+                bounds.Union(item.WorldBounds);
+                if (boundsByNode.TryGetValue(item.NodeIndex, out var nodeBounds))
+                {
+                    nodeBounds.Union(item.WorldBounds);
+                    boundsByNode[item.NodeIndex] = nodeBounds;
+                }
+                else
+                {
+                    boundsByNode[item.NodeIndex] = item.WorldBounds;
+                }
+            }
+        }
+
+        foreach (var (nodeIndex, nodeBounds) in boundsByNode)
+        {
+            if (nodeIndex != _primaryHighlightedNodeIndex && nodeBounds.Width > 0 && nodeBounds.Height > 0)
+            {
+                drawingContext.DrawRectangle(null, ChildHighlightPen, nodeBounds);
+            }
+        }
+
+        if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+        {
+            drawingContext.DrawRectangle(null, HighlightPen, bounds);
+        }
     }
 
     private static void DrawPlaceholderLabel(DrawingContext drawingContext, RenderItem item)

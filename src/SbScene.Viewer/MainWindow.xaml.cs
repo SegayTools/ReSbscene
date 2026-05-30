@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,12 +21,15 @@ public partial class MainWindow : Window
     private bool _controlsReady;
     private readonly HashSet<int> _hiddenNodeIndexes = [];
     private readonly HashSet<int> _shownNodeIndexes = [];
+    private HashSet<int>? _selectedNodeIndexes;
+    private int? _selectedNodeIndex;
 
     public MainWindow()
     {
         InitializeComponent();
         _controlsReady = true;
         SetZoom(1);
+        UpdateSelectedNodeInfo();
         SetStatus("就绪。");
         Loaded += MainWindow_Loaded;
     }
@@ -116,7 +120,17 @@ public partial class MainWindow : Window
 
     private void NodeTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        RenderSurface.HighlightedNodeIndex = NodeTree.SelectedItem is NodeTreeItem row ? row.Index : null;
+        if (NodeTree.SelectedItem is NodeTreeItem row)
+        {
+            HighlightNodeSubtree(row);
+        }
+        else
+        {
+            _selectedNodeIndex = null;
+            _selectedNodeIndexes = null;
+            UpdateRenderSurfaceScene(fitSelectionPreview: false);
+            UpdateSelectedNodeInfo();
+        }
     }
 
     private void NodeTreeItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -218,6 +232,8 @@ public partial class MainWindow : Window
             _scenePath = path;
             _resources = null;
             _svoPath = null;
+            _selectedNodeIndex = null;
+            _selectedNodeIndexes = null;
 
             var svoPath = explicitSvoPath ?? _pendingSvoPath ?? FindSiblingSvo(path);
             _pendingSvoPath = null;
@@ -287,7 +303,11 @@ public partial class MainWindow : Window
 
     private void RebuildRender()
     {
-        if (!_controlsReady || RenderSurface is null || EmptyOverlay is null)
+        if (!_controlsReady
+            || RenderSurface is null
+            || SelectionRenderSurface is null
+            || EmptyOverlay is null
+            || SelectionEmptyOverlay is null)
         {
             return;
         }
@@ -295,6 +315,8 @@ public partial class MainWindow : Window
         if (_scene is null)
         {
             RenderSurface.Scene = null;
+            SelectionRenderSurface.Scene = null;
+            SetSelectionPreviewEmpty("未选择节点。", visible: true);
             EmptyOverlay.Visibility = Visibility.Visible;
             return;
         }
@@ -305,7 +327,8 @@ public partial class MainWindow : Window
             _hiddenNodeIndexes,
             _shownNodeIndexes);
         _renderScene = SceneRenderBuilder.Build(_scene, _resources, options);
-        RenderSurface.Scene = _renderScene;
+        UpdateRenderSurfaceScene(fitSelectionPreview: _selectedNodeIndexes is { Count: > 0 });
+        UpdateSelectedNodeInfo();
         EmptyOverlay.Visibility = Visibility.Collapsed;
         UpdateStatusFromRender();
     }
@@ -361,6 +384,84 @@ public partial class MainWindow : Window
         SetStatus(status.TrimEnd());
     }
 
+    private void UpdateSelectedNodeInfo()
+    {
+        if (!_controlsReady || SelectedNodeInfoTextBlock is null)
+        {
+            return;
+        }
+
+        if (_scene is null)
+        {
+            SelectedNodeInfoTextBlock.Text = "未加载 scene。";
+            return;
+        }
+
+        if (_selectedNodeIndex is not int nodeIndex
+            || nodeIndex < 0
+            || nodeIndex >= _scene.Surfboard.Nodes.Count)
+        {
+            SelectedNodeInfoTextBlock.Text = "未选择节点。";
+            return;
+        }
+
+        var node = _scene.Surfboard.Nodes[nodeIndex];
+        var selectedIndexes = _selectedNodeIndexes ?? [nodeIndex];
+        var imageCastCount = _scene.Surfboard.Resources.ImageCasts.Count(imageCast => selectedIndexes.Contains(imageCast.CastIndex));
+        var itemCount = _renderScene?.Items.Count(item => selectedIndexes.Contains(item.NodeIndex)) ?? 0;
+        var builder = new StringBuilder();
+        builder.AppendLine($"Index:      {node.Index}");
+        builder.AppendLine($"Name:       {node.Name ?? "(unnamed)"}");
+        builder.AppendLine($"Group:      {node.Group}");
+        builder.AppendLine($"Display:    {FormatDisplayState(node)}");
+        builder.AppendLine($"Flags:      {(node.Flags is null ? "-" : $"0x{node.Flags.Value:X}")}");
+        builder.AppendLine($"Subtree:    {selectedIndexes.Count:N0} nodes");
+        builder.AppendLine($"Images:     {imageCastCount:N0} image casts, {itemCount:N0} render items");
+        builder.AppendLine($"Transform:  {FormatTransform(node.Transform2D)}");
+        if (!string.IsNullOrWhiteSpace(node.Comment))
+        {
+            builder.AppendLine($"Comment:    {node.Comment}");
+        }
+
+        builder.AppendLine($"Path:       {node.Path}");
+        SelectedNodeInfoTextBlock.Text = builder.ToString();
+    }
+
+    private string FormatDisplayState(NodeInfo node)
+    {
+        if (_hiddenNodeIndexes.Contains(node.Index))
+        {
+            return "hide* (viewer override)";
+        }
+
+        if (_shownNodeIndexes.Contains(node.Index))
+        {
+            return "show* (viewer override)";
+        }
+
+        return node.Transform2D?.Display switch
+        {
+            true => "show",
+            false => "hide",
+            _ => "?",
+        };
+    }
+
+    private static string FormatTransform(Transform2DInfo? transform)
+    {
+        if (transform is null)
+        {
+            return "-";
+        }
+
+        var tx = transform.Translation?.X.ToString("0.##", CultureInfo.InvariantCulture) ?? "?";
+        var ty = transform.Translation?.Y.ToString("0.##", CultureInfo.InvariantCulture) ?? "?";
+        var sx = transform.Scale?.X.ToString("0.##", CultureInfo.InvariantCulture) ?? "?";
+        var sy = transform.Scale?.Y.ToString("0.##", CultureInfo.InvariantCulture) ?? "?";
+        var rotation = (transform.RotationZDegreesCandidate ?? transform.RotationZ)?.ToString("0.##", CultureInfo.InvariantCulture) ?? "?";
+        return $"T({tx},{ty}) R({rotation}) S({sx},{sy})";
+    }
+
     private string BuildWarningSummary()
     {
         var warningCount = (_scene?.Summary.Warnings.Count ?? 0) + (_resources?.Warnings.Count ?? 0);
@@ -379,14 +480,22 @@ public partial class MainWindow : Window
         _resources = null;
         _renderScene = null;
         _scenePath = null;
+        _selectedNodeIndex = null;
+        _selectedNodeIndexes = null;
         _hiddenNodeIndexes.Clear();
         _shownNodeIndexes.Clear();
         NodeTree.ItemsSource = null;
         RenderSurface.Scene = null;
-        RenderSurface.HighlightedNodeIndex = null;
+        RenderSurface.PrimaryHighlightedNodeIndex = null;
+        RenderSurface.HighlightedNodeIndexes = new HashSet<int>();
+        SelectionRenderSurface.Scene = null;
+        SelectionRenderSurface.PrimaryHighlightedNodeIndex = null;
+        SelectionRenderSurface.HighlightedNodeIndexes = new HashSet<int>();
         SceneTitleTextBlock.Text = "未加载 scene";
         SceneSummaryTextBlock.Text = string.Empty;
         SvoSummaryTextBlock.Text = string.Empty;
+        UpdateSelectedNodeInfo();
+        SetSelectionPreviewEmpty("未选择节点。", visible: true);
         EmptyOverlay.Visibility = Visibility.Visible;
     }
 
@@ -406,7 +515,10 @@ public partial class MainWindow : Window
 
     private void SelectNode(int nodeIndex)
     {
-        RenderSurface.HighlightedNodeIndex = nodeIndex;
+        _selectedNodeIndex = nodeIndex;
+        _selectedNodeIndexes = [nodeIndex];
+        UpdateRenderSurfaceScene(fitSelectionPreview: true);
+        UpdateSelectedNodeInfo();
         if (!_controlsReady || NodeTree.Items.Count == 0)
         {
             return;
@@ -418,7 +530,117 @@ public partial class MainWindow : Window
             item.IsSelected = true;
             item.Focus();
             item.BringIntoView();
+            if (item.DataContext is NodeTreeItem treeItem)
+            {
+                HighlightNodeSubtree(treeItem);
+            }
         }
+    }
+
+    private void UpdateRenderSurfaceScene(bool fitSelectionPreview)
+    {
+        if (!_controlsReady || RenderSurface is null || SelectionRenderSurface is null)
+        {
+            return;
+        }
+
+        if (_renderScene is null)
+        {
+            RenderSurface.Scene = null;
+            RenderSurface.PrimaryHighlightedNodeIndex = null;
+            RenderSurface.HighlightedNodeIndexes = new HashSet<int>();
+            SelectionRenderSurface.Scene = null;
+            SelectionRenderSurface.PrimaryHighlightedNodeIndex = null;
+            SelectionRenderSurface.HighlightedNodeIndexes = new HashSet<int>();
+            SetSelectionPreviewEmpty("未选择节点。", visible: true);
+            return;
+        }
+
+        RenderSurface.Scene = _renderScene;
+        RenderSurface.PrimaryHighlightedNodeIndex = _selectedNodeIndex;
+        RenderSurface.HighlightedNodeIndexes = _selectedNodeIndexes ?? new HashSet<int>();
+
+        if (_selectedNodeIndexes is not { Count: > 0 } indexes)
+        {
+            SelectionRenderSurface.Scene = null;
+            SelectionRenderSurface.PrimaryHighlightedNodeIndex = null;
+            SelectionRenderSurface.HighlightedNodeIndexes = new HashSet<int>();
+            SetSelectionPreviewEmpty("未选择节点。", visible: true);
+            return;
+        }
+
+        var selectionScene = FilterRenderScene(_renderScene, indexes);
+        SelectionRenderSurface.Scene = selectionScene;
+        SelectionRenderSurface.PrimaryHighlightedNodeIndex = _selectedNodeIndex;
+        SelectionRenderSurface.HighlightedNodeIndexes = indexes;
+        SetSelectionPreviewEmpty(
+            selectionScene.Items.Count == 0 ? "选中子树没有可绘制项。" : null,
+            visible: selectionScene.Items.Count == 0);
+
+        if (fitSelectionPreview)
+        {
+            FitSelectionPreviewToViewport();
+        }
+    }
+
+    private void FitSelectionPreviewToViewport()
+    {
+        if (SelectionRenderSurface.Scene is null
+            || SelectionScrollViewer.ViewportWidth <= 0
+            || SelectionScrollViewer.ViewportHeight <= 0)
+        {
+            return;
+        }
+
+        SelectionScrollViewer.UpdateLayout();
+        var size = SelectionRenderSurface.Scene.SurfaceSize;
+        var zoom = Math.Min(
+            SelectionScrollViewer.ViewportWidth / size.Width,
+            SelectionScrollViewer.ViewportHeight / size.Height);
+        SelectionRenderSurface.Zoom = Math.Clamp(zoom, 0.1, 4);
+        SelectionScrollViewer.ScrollToHorizontalOffset(0);
+        SelectionScrollViewer.ScrollToVerticalOffset(0);
+    }
+
+    private void SelectionScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        FitSelectionPreviewToViewport();
+    }
+
+    private void SetSelectionPreviewEmpty(string? text, bool visible)
+    {
+        if (SelectionEmptyTextBlock is not null && text is not null)
+        {
+            SelectionEmptyTextBlock.Text = text;
+        }
+
+        if (SelectionEmptyOverlay is not null)
+        {
+            SelectionEmptyOverlay.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private static RenderScene FilterRenderScene(RenderScene source, IReadOnlySet<int> nodeIndexes)
+    {
+        var items = source.Items
+            .Where(item => nodeIndexes.Contains(item.NodeIndex))
+            .ToArray();
+        var bounds = Rect.Empty;
+        foreach (var item in items)
+        {
+            bounds.Union(item.WorldBounds);
+        }
+
+        if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            bounds = new Rect(-160, -120, 320, 240);
+        }
+
+        return new RenderScene
+        {
+            Items = items,
+            ContentBounds = bounds,
+        };
     }
 
     private void SetSelectedSubtreeVisibility(bool? visible)
@@ -451,9 +673,24 @@ public partial class MainWindow : Window
             }
         }
 
+        var selectedIndex = item.Index;
+        var selectedIndexes = indexes.ToHashSet();
+        _selectedNodeIndex = selectedIndex;
+        _selectedNodeIndexes = selectedIndexes;
         RefreshNodeTree();
+        _selectedNodeIndex = selectedIndex;
+        _selectedNodeIndexes = selectedIndexes;
         RebuildRender();
-        RenderSurface.HighlightedNodeIndex = item.Index;
+        UpdateRenderSurfaceScene(fitSelectionPreview: true);
+        UpdateSelectedNodeInfo();
+        NodeTree.UpdateLayout();
+        if (TrySelectTreeItem(NodeTree, selectedIndex, out var selectedTreeItem))
+        {
+            selectedTreeItem.IsSelected = true;
+            selectedTreeItem.Focus();
+            selectedTreeItem.BringIntoView();
+        }
+
         var action = visible switch
         {
             true => "显示",
@@ -471,6 +708,17 @@ public partial class MainWindow : Window
         }
 
         NodeTree.ItemsSource = SceneRenderBuilder.BuildNodeTree(_scene, _hiddenNodeIndexes, _shownNodeIndexes);
+    }
+
+    private void HighlightNodeSubtree(NodeTreeItem item)
+    {
+        var indexes = item.EnumerateSelfAndDescendants()
+            .Select(static node => node.Index)
+            .ToHashSet();
+        _selectedNodeIndex = item.Index;
+        _selectedNodeIndexes = indexes;
+        UpdateRenderSurfaceScene(fitSelectionPreview: true);
+        UpdateSelectedNodeInfo();
     }
 
     private void SetZoom(double value, bool updateSlider = true)
