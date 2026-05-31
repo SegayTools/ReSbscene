@@ -82,9 +82,9 @@ public static class SbScenePngRenderer
             }
         }
 
-        var nodeStates = BuildInitialNodeStates(scene.Surfboard.Nodes);
-        var imageStates = BuildInitialImageStates(scene.Surfboard.Resources.ImageCasts);
-        ApplyAnimations(scene, nodeStates, imageStates, options.Animations, AddWarning);
+        var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animations, AddWarning);
+        var nodeStates = frameState.Nodes;
+        var imageStates = frameState.ImageCasts;
 
         var parentByNode = SbSceneRenderTree.BuildParentMap(scene.Surfboard.Nodes);
         var visibleNodes = SbSceneRenderTree.BuildFinalVisibility(
@@ -148,237 +148,9 @@ public static class SbScenePngRenderer
         return new RgbaImage(width, height, pixels);
     }
 
-    private static IReadOnlyList<NodeRenderState> BuildInitialNodeStates(IReadOnlyList<NodeInfo> nodes)
-    {
-        return nodes.Select(static node =>
-        {
-            var transform = node.Transform2D;
-            var material = transform?.MaterialColor;
-            var illumination = transform?.IlluminationColor;
-            return new NodeRenderState
-            {
-                TranslationX = transform?.Translation?.X ?? 0,
-                TranslationY = transform?.Translation?.Y ?? 0,
-                RotationDegrees = transform?.RotationZDegreesCandidate ?? transform?.RotationZ ?? 0,
-                ScaleX = transform?.Scale?.X ?? 1,
-                ScaleY = transform?.Scale?.Y ?? 1,
-                Display = transform?.Display ?? true,
-                MaterialR = material?.R ?? byte.MaxValue,
-                MaterialG = material?.G ?? byte.MaxValue,
-                MaterialB = material?.B ?? byte.MaxValue,
-                MaterialA = material?.A ?? byte.MaxValue,
-                IlluminationR = illumination?.R ?? byte.MinValue,
-                IlluminationG = illumination?.G ?? byte.MinValue,
-                IlluminationB = illumination?.B ?? byte.MinValue,
-                IlluminationA = illumination?.A ?? byte.MinValue,
-                VertexColors = BuildVertexColors(transform),
-            };
-        }).ToArray();
-    }
-
-    private static IReadOnlyList<RgbaColor> BuildVertexColors(Transform2DInfo? transform)
-    {
-        if (transform is null || transform.VertexColors.Count == 0)
-        {
-            return [SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite];
-        }
-
-        var colors = transform.VertexColors
-            .Take(4)
-            .Select(static color => new RgbaColor(color.R, color.G, color.B, color.A))
-            .ToList();
-        while (colors.Count < 4)
-        {
-            colors.Add(SbSceneColorConventions.OpaqueWhite);
-        }
-
-        return colors;
-    }
-
-    private static IReadOnlyList<ImageCastRenderState> BuildInitialImageStates(IReadOnlyList<SbSceneImageCast> imageCasts)
-    {
-        return imageCasts.Select(static imageCast => new ImageCastRenderState
-        {
-            PrimaryReferenceIndex = ClampReferenceIndex(imageCast.PrimaryCropReferenceIndex, imageCast.PrimaryCropReferences.Count),
-            SecondaryReferenceIndex = ClampReferenceIndex(imageCast.SecondaryCropReferenceIndex, imageCast.SecondaryCropReferences.Count),
-        }).ToArray();
-    }
-
-    private static int ClampReferenceIndex(int? value, int count)
-    {
-        return value is >= 0 && value < count ? value.Value : 0;
-    }
-
-    private static void ApplyAnimations(
-        SbSceneFile scene,
-        IReadOnlyList<NodeRenderState> nodeStates,
-        IReadOnlyList<ImageCastRenderState> imageStates,
-        IReadOnlyList<SbSceneAnimationSelection> selections,
-        Action<string> addWarning)
-    {
-        if (selections.Count == 0)
-        {
-            return;
-        }
-
-        var animationsByName = scene.Surfboard.Animations
-            .Where(static animation => !string.IsNullOrWhiteSpace(animation.Name))
-            .GroupBy(static animation => animation.Name!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var imageCastsByNode = scene.Surfboard.Resources.ImageCasts
-            .GroupBy(static imageCast => imageCast.CastIndex)
-            .ToDictionary(static group => group.Key, static group => group.ToArray());
-        var nodeIndexByName = scene.Surfboard.Nodes
-            .Where(static node => !string.IsNullOrWhiteSpace(node.Name))
-            .GroupBy(static node => node.Name!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(static group => group.Key, static group => group.First().Index, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var selection in selections)
-        {
-            if (!animationsByName.TryGetValue(selection.Name, out var animation))
-            {
-                addWarning($"Animation '{selection.Name}' was not found.");
-                continue;
-            }
-
-            foreach (var motion in animation.Motions)
-            {
-                var nodeIndex = ResolveMotionNodeIndex(scene.Surfboard.Nodes, nodeIndexByName, motion);
-                if (nodeIndex is null || nodeIndex < 0 || nodeIndex >= nodeStates.Count)
-                {
-                    continue;
-                }
-
-                var state = nodeStates[nodeIndex.Value];
-                foreach (var track in motion.Tracks)
-                {
-                    ApplyTrack(track, selection.Frame, state, nodeIndex.Value, imageCastsByNode, imageStates);
-                }
-            }
-        }
-    }
-
-    private static int? ResolveMotionNodeIndex(
-        IReadOnlyList<NodeInfo> nodes,
-        IReadOnlyDictionary<string, int> nodeIndexByName,
-        MotionInfo motion)
-    {
-        if (motion.CastIndex is int castIndex && castIndex >= 0 && castIndex < nodes.Count)
-        {
-            return castIndex;
-        }
-
-        if (motion.TargetIndex is int targetIndex && targetIndex >= 0 && targetIndex < nodes.Count)
-        {
-            return targetIndex;
-        }
-
-        return !string.IsNullOrWhiteSpace(motion.TargetName) && nodeIndexByName.TryGetValue(motion.TargetName, out var namedIndex)
-            ? namedIndex
-            : null;
-    }
-
-    private static void ApplyTrack(
-        TrackInfo track,
-        double frame,
-        NodeRenderState state,
-        int nodeIndex,
-        IReadOnlyDictionary<int, SbSceneImageCast[]> imageCastsByNode,
-        IReadOnlyList<ImageCastRenderState> imageStates)
-    {
-        switch (track.TrackType)
-        {
-            case 0 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double translateX:
-                state.TranslationX = translateX;
-                break;
-            case 1 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double translateY:
-                state.TranslationY = translateY;
-                break;
-            case 5 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double rotation:
-                state.RotationDegrees = rotation;
-                break;
-            case 6 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double scaleX:
-                state.ScaleX = scaleX;
-                break;
-            case 7 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double scaleY:
-                state.ScaleY = scaleY;
-                break;
-            case 11 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double display:
-                state.Display = display >= 0.5;
-                break;
-            case 18 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double primaryIndex:
-                ApplyImageReferenceIndex(nodeIndex, imageCastsByNode, imageStates, primary: true, (int)Math.Round(primaryIndex));
-                break;
-            case 19 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double secondaryIndex:
-                ApplyImageReferenceIndex(nodeIndex, imageCastsByNode, imageStates, primary: false, (int)Math.Round(secondaryIndex));
-                break;
-            case 21 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialRed:
-                state.MaterialR = ToByteChannel(materialRed);
-                break;
-            case 22 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialGreen:
-                state.MaterialG = ToByteChannel(materialGreen);
-                break;
-            case 23 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialBlue:
-                state.MaterialB = ToByteChannel(materialBlue);
-                break;
-            case 24 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialAlpha:
-                state.MaterialA = ToByteChannel(materialAlpha);
-                break;
-            case 25 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationRed:
-                state.IlluminationR = ToByteChannel(illuminationRed);
-                break;
-            case 26 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationGreen:
-                state.IlluminationG = ToByteChannel(illuminationGreen);
-                break;
-            case 27 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationBlue:
-                state.IlluminationB = ToByteChannel(illuminationBlue);
-                break;
-            case 28 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationAlpha:
-                state.IlluminationA = ToByteChannel(illuminationAlpha);
-                break;
-        }
-    }
-
-    private static void ApplyImageReferenceIndex(
-        int nodeIndex,
-        IReadOnlyDictionary<int, SbSceneImageCast[]> imageCastsByNode,
-        IReadOnlyList<ImageCastRenderState> imageStates,
-        bool primary,
-        int referenceIndex)
-    {
-        if (!imageCastsByNode.TryGetValue(nodeIndex, out var imageCasts))
-        {
-            return;
-        }
-
-        foreach (var imageCast in imageCasts)
-        {
-            if (imageCast.Index < 0 || imageCast.Index >= imageStates.Count)
-            {
-                continue;
-            }
-
-            var state = imageStates[imageCast.Index];
-            if (primary)
-            {
-                state.PrimaryReferenceIndex = ClampReferenceIndex(referenceIndex, imageCast.PrimaryCropReferences.Count);
-            }
-            else
-            {
-                state.SecondaryReferenceIndex = ClampReferenceIndex(referenceIndex, imageCast.SecondaryCropReferences.Count);
-            }
-        }
-    }
-
-    private static byte ToByteChannel(double value)
-    {
-        var scaled = value is >= 0 and <= 1.0 + Epsilon ? value * 255.0 : value;
-        return (byte)Math.Clamp((int)Math.Round(scaled), byte.MinValue, byte.MaxValue);
-    }
-
     private static IReadOnlyList<Matrix2D> BuildWorldTransforms(
         IReadOnlyList<NodeInfo> nodes,
-        IReadOnlyList<NodeRenderState> nodeStates,
+        IReadOnlyList<SbSceneNodeAnimationState> nodeStates,
         IReadOnlyDictionary<int, int> parentByNode)
     {
         var memo = new Dictionary<int, Matrix2D>();
@@ -413,8 +185,8 @@ public static class SbScenePngRenderer
 
     private static IReadOnlyList<RenderLayer> BuildRenderLayers(
         SbSceneFile scene,
-        IReadOnlyList<NodeRenderState> nodeStates,
-        IReadOnlyList<ImageCastRenderState> imageStates,
+        IReadOnlyList<SbSceneNodeAnimationState> nodeStates,
+        IReadOnlyList<SbSceneImageCastAnimationState> imageStates,
         IReadOnlyList<bool> visibleNodes,
         IReadOnlyList<double> effectiveOpacities,
         IReadOnlyList<Matrix2D> worldTransforms,
@@ -878,53 +650,9 @@ public static class SbScenePngRenderer
         }
     }
 
-    private sealed class NodeRenderState
-    {
-        public double TranslationX { get; set; }
-
-        public double TranslationY { get; set; }
-
-        public double RotationDegrees { get; set; }
-
-        public double ScaleX { get; set; }
-
-        public double ScaleY { get; set; }
-
-        public bool Display { get; set; }
-
-        public byte MaterialR { get; set; }
-
-        public byte MaterialG { get; set; }
-
-        public byte MaterialB { get; set; }
-
-        public byte MaterialA { get; set; }
-
-        public byte IlluminationR { get; set; }
-
-        public byte IlluminationG { get; set; }
-
-        public byte IlluminationB { get; set; }
-
-        public byte IlluminationA { get; set; }
-
-        public required IReadOnlyList<RgbaColor> VertexColors { get; init; }
-
-        public RgbaColor MaterialColor => new(MaterialR, MaterialG, MaterialB, MaterialA);
-
-        public RgbaColor IlluminationColor => new(IlluminationR, IlluminationG, IlluminationB, IlluminationA);
-    }
-
-    private sealed class ImageCastRenderState
-    {
-        public int PrimaryReferenceIndex { get; set; }
-
-        public int SecondaryReferenceIndex { get; set; }
-    }
-
     private sealed class RenderLayer
     {
-        public required NodeRenderState NodeState { get; init; }
+        public required SbSceneNodeAnimationState NodeState { get; init; }
 
         public required RenderRect LocalRect { get; init; }
 
@@ -969,7 +697,7 @@ public static class SbScenePngRenderer
 
     private readonly record struct Matrix2D(double M11, double M12, double M21, double M22, double OffsetX, double OffsetY)
     {
-        public static Matrix2D FromTransform(NodeRenderState state)
+        public static Matrix2D FromTransform(SbSceneNodeAnimationState state)
         {
             var radians = SbSceneTransformConventions.ToScreenRotationDegrees(state.RotationDegrees) * Math.PI / 180.0;
             var cos = Math.Cos(radians);

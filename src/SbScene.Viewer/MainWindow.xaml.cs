@@ -1,17 +1,22 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
+using SbScene.Core.Rendering;
 using SbScene.Core.Semantics;
 
 namespace SbScene.Viewer;
 
 public partial class MainWindow : Window
 {
+    private const double PlaybackFramesPerSecond = 60.0;
+
     private SbSceneFile? _scene;
     private SvoRenderResources? _resources;
     private RenderScene? _renderScene;
@@ -23,12 +28,23 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _shownNodeIndexes = [];
     private HashSet<int>? _selectedNodeIndexes;
     private int? _selectedNodeIndex;
+    private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(16) };
+    private readonly Stopwatch _playbackClock = new();
+    private readonly List<AnimationListItem> _animationItems = [];
+    private bool _isUpdatingAnimationControls;
+    private int? _selectedAnimationIndex;
+    private double _currentFrame;
+    private double _endFrame;
+    private bool _isPlaying;
+    private bool _isLooping;
 
     public MainWindow()
     {
         InitializeComponent();
+        _playbackTimer.Tick += PlaybackTimer_Tick;
         _controlsReady = true;
         SetZoom(1);
+        UpdateAnimationControls();
         UpdateSelectedNodeInfo();
         SetStatus("就绪。");
         Loaded += MainWindow_Loaded;
@@ -116,6 +132,62 @@ public partial class MainWindow : Window
         }
 
         SetZoom(e.NewValue, updateSlider: false);
+    }
+
+    private void AnimationComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_controlsReady || _isUpdatingAnimationControls)
+        {
+            return;
+        }
+
+        if (AnimationComboBox.SelectedItem is not AnimationListItem item)
+        {
+            SelectAnimation(null, rebuild: true);
+            return;
+        }
+
+        SelectAnimation(item.Index, rebuild: true);
+    }
+
+    private void AnimationFrameSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_controlsReady || _isUpdatingAnimationControls || GetSelectedAnimation() is null)
+        {
+            return;
+        }
+
+        PausePlayback(updateControls: false);
+        _currentFrame = Math.Clamp(e.NewValue, 0, _endFrame);
+        UpdateAnimationControls(updateSlider: false);
+        RebuildRender();
+    }
+
+    private void PlayAnimation_Click(object sender, RoutedEventArgs e)
+    {
+        StartPlayback();
+    }
+
+    private void PauseAnimation_Click(object sender, RoutedEventArgs e)
+    {
+        PausePlayback();
+        RebuildRender();
+    }
+
+    private void StopAnimation_Click(object sender, RoutedEventArgs e)
+    {
+        StopPlayback();
+    }
+
+    private void LoopAnimation_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!_controlsReady || _isUpdatingAnimationControls)
+        {
+            return;
+        }
+
+        _isLooping = LoopAnimationCheckBox.IsChecked == true;
+        UpdateAnimationControls();
     }
 
     private void NodeTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
@@ -253,6 +325,7 @@ public partial class MainWindow : Window
 
             _hiddenNodeIndexes.Clear();
             _shownNodeIndexes.Clear();
+            RefreshAnimationList();
             RefreshNodeTree();
             UpdateSceneSummary();
             RebuildRender();
@@ -301,7 +374,302 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RebuildRender()
+    private void PlaybackTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_isPlaying || GetSelectedAnimation() is null)
+        {
+            PausePlayback();
+            return;
+        }
+
+        var elapsedSeconds = _playbackClock.Elapsed.TotalSeconds;
+        _playbackClock.Restart();
+        if (elapsedSeconds <= 0)
+        {
+            return;
+        }
+
+        if (_endFrame <= 0)
+        {
+            _currentFrame = 0;
+            PausePlayback();
+            RebuildRender(fitSelectionPreview: false, updateDetails: false);
+            return;
+        }
+
+        var nextFrame = _currentFrame + elapsedSeconds * PlaybackFramesPerSecond;
+        if (nextFrame >= _endFrame)
+        {
+            if (_isLooping)
+            {
+                nextFrame %= _endFrame;
+            }
+            else
+            {
+                _currentFrame = _endFrame;
+                PausePlayback();
+                RebuildRender(fitSelectionPreview: false, updateDetails: false);
+                return;
+            }
+        }
+
+        _currentFrame = Math.Clamp(nextFrame, 0, _endFrame);
+        UpdateAnimationFrameDisplay();
+        RebuildRender(fitSelectionPreview: false, updateDetails: false);
+    }
+
+    private void StartPlayback()
+    {
+        if (GetSelectedAnimation() is null)
+        {
+            return;
+        }
+
+        if (_endFrame <= 0)
+        {
+            _currentFrame = 0;
+            PausePlayback();
+            RebuildRender();
+            return;
+        }
+
+        if (_currentFrame >= _endFrame)
+        {
+            _currentFrame = 0;
+        }
+
+        _isPlaying = true;
+        _playbackClock.Restart();
+        _playbackTimer.Start();
+        UpdateAnimationControls();
+    }
+
+    private void PausePlayback(bool updateControls = true)
+    {
+        _isPlaying = false;
+        _playbackTimer.Stop();
+        _playbackClock.Reset();
+        if (updateControls)
+        {
+            UpdateAnimationControls();
+        }
+    }
+
+    private void StopPlayback(bool rebuild = true)
+    {
+        PausePlayback(updateControls: false);
+        _currentFrame = 0;
+        UpdateAnimationControls();
+        if (rebuild)
+        {
+            RebuildRender();
+        }
+    }
+
+    private void RefreshAnimationList()
+    {
+        PausePlayback(updateControls: false);
+        _animationItems.Clear();
+        _selectedAnimationIndex = null;
+        _currentFrame = 0;
+        _endFrame = 0;
+        _isLooping = false;
+
+        if (_scene is not null)
+        {
+            for (var i = 0; i < _scene.Surfboard.Animations.Count; i++)
+            {
+                var animation = _scene.Surfboard.Animations[i];
+                _animationItems.Add(new AnimationListItem(i, FormatAnimationDisplayName(animation)));
+            }
+        }
+
+        if (!_controlsReady || AnimationComboBox is null)
+        {
+            return;
+        }
+
+        _isUpdatingAnimationControls = true;
+        try
+        {
+            AnimationComboBox.ItemsSource = null;
+            AnimationComboBox.ItemsSource = _animationItems;
+            AnimationComboBox.DisplayMemberPath = nameof(AnimationListItem.DisplayName);
+            AnimationComboBox.SelectedIndex = _animationItems.Count > 0 ? 0 : -1;
+        }
+        finally
+        {
+            _isUpdatingAnimationControls = false;
+        }
+
+        if (_animationItems.Count > 0)
+        {
+            SelectAnimation(_animationItems[0].Index, rebuild: false);
+        }
+        else
+        {
+            UpdateAnimationControls();
+        }
+    }
+
+    private void SelectAnimation(int? animationIndex, bool rebuild)
+    {
+        PausePlayback(updateControls: false);
+        _selectedAnimationIndex = animationIndex;
+        _currentFrame = 0;
+        _endFrame = 0;
+        _isLooping = false;
+
+        if (GetSelectedAnimation() is AnimationInfo animation)
+        {
+            _endFrame = ComputeAnimationEndFrame(animation);
+            _isLooping = ReadDefaultLoop(animation);
+        }
+
+        UpdateAnimationControls();
+        if (rebuild)
+        {
+            RebuildRender();
+        }
+    }
+
+    private AnimationInfo? GetSelectedAnimation()
+    {
+        if (_scene is null || _selectedAnimationIndex is not int index)
+        {
+            return null;
+        }
+
+        return index >= 0 && index < _scene.Surfboard.Animations.Count
+            ? _scene.Surfboard.Animations[index]
+            : null;
+    }
+
+    private void UpdateAnimationControls(bool updateSlider = true)
+    {
+        if (!_controlsReady || AnimationCountTextBlock is null)
+        {
+            return;
+        }
+
+        var animationCount = _scene?.Surfboard.Animations.Count ?? 0;
+        var hasAnimation = GetSelectedAnimation() is not null;
+        _isUpdatingAnimationControls = true;
+        try
+        {
+            AnimationCountTextBlock.Text = string.Format(CultureInfo.InvariantCulture, "{0:N0} animations", animationCount);
+            AnimationComboBox.IsEnabled = animationCount > 0;
+            AnimationFrameSlider.IsEnabled = hasAnimation;
+            AnimationFrameSlider.Maximum = Math.Max(0, _endFrame);
+            AnimationFrameSlider.TickFrequency = _endFrame > 0 ? Math.Max(1, Math.Round(_endFrame / 20.0)) : 1;
+            if (updateSlider)
+            {
+                AnimationFrameSlider.Value = Math.Clamp(_currentFrame, AnimationFrameSlider.Minimum, AnimationFrameSlider.Maximum);
+            }
+
+            AnimationFrameTextBlock.Text = hasAnimation
+                ? $"Frame {FormatFrame(_currentFrame)} / {FormatFrame(_endFrame)}"
+                : "Frame 0 / 0";
+            PlayAnimationButton.IsEnabled = hasAnimation && !_isPlaying;
+            PauseAnimationButton.IsEnabled = hasAnimation && _isPlaying;
+            StopAnimationButton.IsEnabled = hasAnimation && (_isPlaying || Math.Abs(_currentFrame) > 0.0001);
+            LoopAnimationCheckBox.IsEnabled = hasAnimation;
+            LoopAnimationCheckBox.IsChecked = hasAnimation && _isLooping;
+        }
+        finally
+        {
+            _isUpdatingAnimationControls = false;
+        }
+    }
+
+    private void UpdateAnimationFrameDisplay(bool updateSlider = true)
+    {
+        if (!_controlsReady || AnimationFrameTextBlock is null)
+        {
+            return;
+        }
+
+        var hasAnimation = GetSelectedAnimation() is not null;
+        _isUpdatingAnimationControls = true;
+        try
+        {
+            if (updateSlider && AnimationFrameSlider is not null)
+            {
+                AnimationFrameSlider.Value = Math.Clamp(_currentFrame, AnimationFrameSlider.Minimum, AnimationFrameSlider.Maximum);
+            }
+
+            AnimationFrameTextBlock.Text = hasAnimation
+                ? $"Frame {FormatFrame(_currentFrame)} / {FormatFrame(_endFrame)}"
+                : "Frame 0 / 0";
+        }
+        finally
+        {
+            _isUpdatingAnimationControls = false;
+        }
+    }
+
+    private static string FormatAnimationDisplayName(AnimationInfo animation)
+    {
+        return string.IsNullOrWhiteSpace(animation.Name)
+            ? $"ANIM@0x{animation.Offset:X}"
+            : animation.Name!;
+    }
+
+    private static double ComputeAnimationEndFrame(AnimationInfo animation)
+    {
+        if (TryGetAnimationInt(animation, "0x0056", out var declaredEndFrame) && declaredEndFrame >= 0)
+        {
+            return declaredEndFrame;
+        }
+
+        var maxTrackFrame = animation.Motions
+            .SelectMany(static motion => motion.Tracks)
+            .Select(static track => track.LastFrame)
+            .Where(static frame => frame is >= 0)
+            .DefaultIfEmpty()
+            .Max();
+        if (maxTrackFrame is int trackFrame)
+        {
+            return trackFrame;
+        }
+
+        var maxKeyFrame = animation.Motions
+            .SelectMany(static motion => motion.Tracks)
+            .SelectMany(static track => track.Keyframes)
+            .Select(static key => key.KeyFrame)
+            .Where(static frame => frame is >= 0)
+            .DefaultIfEmpty()
+            .Max();
+        return maxKeyFrame ?? 0;
+    }
+
+    private static bool ReadDefaultLoop(AnimationInfo animation)
+    {
+        return TryGetAnimationInt(animation, "0x005F", out var value) && value == 1;
+    }
+
+    private static bool TryGetAnimationInt(AnimationInfo animation, string idHex, out int value)
+    {
+        var raw = animation.NumericFields
+            .FirstOrDefault(field => string.Equals(field.IdHex, idHex, StringComparison.Ordinal))?
+            .Int64Values?
+            .FirstOrDefault();
+        if (raw is >= int.MinValue and <= int.MaxValue)
+        {
+            value = (int)raw.Value;
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
+
+    private static string FormatFrame(double frame)
+    {
+        return frame.ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
+    private void RebuildRender(bool fitSelectionPreview = true, bool updateDetails = true)
     {
         if (!_controlsReady
             || RenderSurface is null
@@ -325,12 +693,21 @@ public partial class MainWindow : Window
             ShowHiddenCheckBox.IsChecked == true,
             ShowMarkersCheckBox.IsChecked == true,
             _hiddenNodeIndexes,
-            _shownNodeIndexes);
+            _shownNodeIndexes,
+            GetSelectedAnimation(),
+            _currentFrame);
         _renderScene = SceneRenderBuilder.Build(_scene, _resources, options);
-        UpdateRenderSurfaceScene(fitSelectionPreview: _selectedNodeIndexes is { Count: > 0 });
-        UpdateSelectedNodeInfo();
+        UpdateRenderSurfaceScene(fitSelectionPreview: fitSelectionPreview && _selectedNodeIndexes is { Count: > 0 });
+        if (updateDetails)
+        {
+            UpdateSelectedNodeInfo();
+        }
+
         EmptyOverlay.Visibility = Visibility.Collapsed;
-        UpdateStatusFromRender();
+        if (updateDetails)
+        {
+            UpdateStatusFromRender();
+        }
     }
 
     private void UpdateSceneSummary()
@@ -484,6 +861,7 @@ public partial class MainWindow : Window
         _selectedNodeIndexes = null;
         _hiddenNodeIndexes.Clear();
         _shownNodeIndexes.Clear();
+        RefreshAnimationList();
         NodeTree.ItemsSource = null;
         RenderSurface.Scene = null;
         RenderSurface.PrimaryHighlightedNodeIndex = null;
@@ -851,4 +1229,6 @@ public partial class MainWindow : Window
             _disposed = true;
         }
     }
+
+    private sealed record AnimationListItem(int Index, string DisplayName);
 }

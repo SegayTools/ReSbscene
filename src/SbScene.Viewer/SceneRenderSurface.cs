@@ -28,8 +28,14 @@ internal sealed class SceneRenderSurface : FrameworkElement
         get => _scene;
         set
         {
+            var oldSize = _scene?.SurfaceSize;
             _scene = value;
-            InvalidateMeasure();
+            var newSize = _scene?.SurfaceSize;
+            if (!AreClose(oldSize, newSize))
+            {
+                InvalidateMeasure();
+            }
+
             InvalidateVisual();
         }
     }
@@ -269,5 +275,13 @@ internal sealed class SceneRenderSurface : FrameworkElement
         return new Point(
             basePoint.X - (ScenePadding - scene.ContentBounds.Left),
             basePoint.Y - (ScenePadding - scene.ContentBounds.Top));
+    }
+
+    private static bool AreClose(Size? left, Size? right)
+    {
+        return left is Size leftSize
+            && right is Size rightSize
+            && Math.Abs(leftSize.Width - rightSize.Width) < 0.01
+            && Math.Abs(leftSize.Height - rightSize.Height) < 0.01;
     }
 }

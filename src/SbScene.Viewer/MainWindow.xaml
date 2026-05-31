@@ -34,6 +34,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,0,0,1" Padding="12,10">
@@ -48,8 +49,8 @@
                               Checked="RenderOption_Changed"
                               Unchecked="RenderOption_Changed" />
                     <CheckBox x:Name="ShowMarkersCheckBox"
-                              Content="节点标记"
-                              IsChecked="True"
+                              Content="调试节点标记"
+                              IsChecked="False"
                               Checked="RenderOption_Changed"
                               Unchecked="RenderOption_Changed" />
                 </StackPanel>
@@ -233,7 +234,65 @@
             </Grid>
         </Grid>
 
-        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,1,0,0" Padding="10,7">
+        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,1,0,0" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="260" />
+                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="AnimationCountTextBlock"
+                           Grid.Column="0"
+                           Margin="0,0,12,0"
+                           VerticalAlignment="Center"
+                           Foreground="#5E6B7A"
+                           Text="0 animations" />
+                <ComboBox x:Name="AnimationComboBox"
+                          Grid.Column="1"
+                          Margin="0,0,12,0"
+                          MinWidth="180"
+                          VerticalAlignment="Center"
+                          SelectionChanged="AnimationComboBox_SelectionChanged" />
+                <TextBlock x:Name="AnimationFrameTextBlock"
+                           Grid.Column="2"
+                           Margin="0,0,12,0"
+                           VerticalAlignment="Center"
+                           Foreground="#4D5968"
+                           Text="Frame 0 / 0" />
+                <Slider x:Name="AnimationFrameSlider"
+                        Grid.Column="3"
+                        Minimum="0"
+                        Maximum="0"
+                        Margin="10,0"
+                        TickFrequency="1"
+                        VerticalAlignment="Center"
+                        ValueChanged="AnimationFrameSlider_ValueChanged" />
+                <Button x:Name="PlayAnimationButton"
+                        Grid.Column="4"
+                        Content="播放"
+                        Click="PlayAnimation_Click" />
+                <Button x:Name="PauseAnimationButton"
+                        Grid.Column="5"
+                        Content="暂停"
+                        Click="PauseAnimation_Click" />
+                <Button x:Name="StopAnimationButton"
+                        Grid.Column="6"
+                        Content="停止"
+                        Click="StopAnimation_Click" />
+                <CheckBox x:Name="LoopAnimationCheckBox"
+                          Grid.Column="7"
+                          Content="循环"
+                          Checked="LoopAnimation_Changed"
+                          Unchecked="LoopAnimation_Changed" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,1,0,0" Padding="10,7">
             <TextBlock x:Name="StatusTextBlock"
                        Foreground="#4D5968"
                        TextTrimming="CharacterEllipsis" />

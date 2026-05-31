@@ -13,7 +13,9 @@ internal sealed record RenderSceneOptions(
     bool ShowHiddenNodes,
     bool ShowNodeMarkers,
     IReadOnlySet<int> HiddenNodeIndexes,
-    IReadOnlySet<int> ShownNodeIndexes);
+    IReadOnlySet<int> ShownNodeIndexes,
+    AnimationInfo? Animation,
+    double CurrentFrame);
 
 internal sealed class RenderScene
 {
@@ -162,8 +164,17 @@ internal sealed class SvoRenderResources
         SbSceneImageCast imageCast,
         out string? resourceInfo)
     {
+        return ResolveBitmap(scene, imageCast, imageCast.PrimaryCropReferenceIndex ?? 0, out resourceInfo);
+    }
+
+    public BitmapSource? ResolveBitmap(
+        SbSceneFile scene,
+        SbSceneImageCast imageCast,
+        int primaryReferenceIndex,
+        out string? resourceInfo)
+    {
         resourceInfo = null;
-        var reference = SelectCropReference(imageCast);
+        var reference = SelectCropReference(imageCast, primaryReferenceIndex);
         if (reference is null)
         {
             resourceInfo = "no crop reference";
@@ -210,11 +221,11 @@ internal sealed class SvoRenderResources
         return bitmap;
     }
 
-    private static SbSceneCropReference? SelectCropReference(SbSceneImageCast imageCast)
+    private static SbSceneCropReference? SelectCropReference(SbSceneImageCast imageCast, int primaryReferenceIndex)
     {
         if (imageCast.PrimaryCropReferences.Count > 0)
         {
-            var index = imageCast.PrimaryCropReferenceIndex ?? 0;
+            var index = primaryReferenceIndex;
             if (index >= 0 && index < imageCast.PrimaryCropReferences.Count)
             {
                 return imageCast.PrimaryCropReferences[index];
@@ -273,17 +284,20 @@ internal static class SceneRenderBuilder
     public static RenderScene Build(SbSceneFile scene, SvoRenderResources? resources, RenderSceneOptions options)
     {
         var nodes = scene.Surfboard.Nodes;
+        var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animation, options.CurrentFrame);
+        var nodeStates = frameState.Nodes;
+        var imageStates = frameState.ImageCasts;
         var parentByNode = SbSceneRenderTree.BuildParentMap(nodes);
         var visibleNodes = SbSceneRenderTree.BuildFinalVisibility(
             nodes,
             parentByNode,
-            index => nodes[index].Transform2D?.Display != false,
+            index => nodeStates[index].Display,
             options.ShowHiddenNodes);
         var effectiveOpacities = SbSceneRenderTree.BuildEffectiveOpacity(
             nodes,
             parentByNode,
-            index => (nodes[index].Transform2D?.MaterialColor?.A ?? (byte)255) / 255.0);
-        var worldTransforms = BuildWorldTransforms(nodes, parentByNode);
+            index => nodeStates[index].MaterialA / 255.0);
+        var worldTransforms = BuildWorldTransforms(nodes, nodeStates, parentByNode);
         var imageCastByNode = scene.Surfboard.Resources.ImageCasts
             .GroupBy(static imageCast => imageCast.CastIndex)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
@@ -315,10 +329,13 @@ internal static class SceneRenderBuilder
             }
 
             var transform = worldTransforms[node.Index];
+            var imageState = imageCast.Index >= 0 && imageCast.Index < imageStates.Count
+                ? imageStates[imageCast.Index]
+                : null;
             string? resourceInfo = null;
             var bitmap = resources is null
                 ? null
-                : resources.ResolveBitmap(scene, imageCast, out resourceInfo);
+                : resources.ResolveBitmap(scene, imageCast, imageState?.PrimaryReferenceIndex ?? 0, out resourceInfo);
             resourceInfo ??= resources is null ? "no SVO bound" : null;
             var worldBounds = TransformRect(localRect, transform);
             items.Add(new RenderItem
@@ -456,6 +473,7 @@ internal static class SceneRenderBuilder
 
     private static IReadOnlyDictionary<int, Matrix> BuildWorldTransforms(
         IReadOnlyList<NodeInfo> nodes,
+        IReadOnlyList<SbSceneNodeAnimationState> nodeStates,
         IReadOnlyDictionary<int, int> parentByNode)
     {
         var memo = new Dictionary<int, Matrix>();
@@ -470,10 +488,10 @@ internal static class SceneRenderBuilder
 
             if (!visiting.Add(index))
             {
-                return BuildLocalTransform(nodes[index].Transform2D);
+                return BuildLocalTransform(nodeStates[index]);
             }
 
-            var local = BuildLocalTransform(nodes[index].Transform2D);
+            var local = BuildLocalTransform(nodeStates[index]);
             var world = local;
             if (parentByNode.TryGetValue(index, out var parentIndex) && parentIndex >= 0 && parentIndex < nodes.Count)
             {
@@ -510,17 +528,12 @@ internal static class SceneRenderBuilder
             : options.ShowHiddenNodes || node.Transform2D?.Display != false;
     }
 
-    private static Matrix BuildLocalTransform(Transform2DInfo? transform)
+    private static Matrix BuildLocalTransform(SbSceneNodeAnimationState state)
     {
         var matrix = Matrix.Identity;
-        var scaleX = transform?.Scale?.X ?? 1.0;
-        var scaleY = transform?.Scale?.Y ?? 1.0;
-        var rotation = transform?.RotationZDegreesCandidate ?? transform?.RotationZ ?? 0.0;
-        var translateX = transform?.Translation?.X ?? 0.0;
-        var translateY = transform?.Translation?.Y ?? 0.0;
-        matrix.Scale(scaleX, scaleY);
-        matrix.Rotate(SbSceneTransformConventions.ToScreenRotationDegrees(rotation));
-        matrix.Translate(translateX, translateY);
+        matrix.Scale(state.ScaleX, state.ScaleY);
+        matrix.Rotate(SbSceneTransformConventions.ToScreenRotationDegrees(state.RotationDegrees));
+        matrix.Translate(state.TranslationX, state.TranslationY);
         return matrix;
     }
 
