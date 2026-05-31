@@ -161,6 +161,8 @@ static int Render(string[] args)
     string? filter = null;
     var padding = 80;
     var scale = 1.0;
+    var supersample = 1;
+    var textureSampling = SbSceneTextureSampling.Nearest;
     var background = RgbaColor.Transparent;
     var showHidden = false;
     var renderSecondary = false;
@@ -184,6 +186,22 @@ static int Render(string[] args)
             case "--scale" when i + 1 < args.Length && double.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedScale):
                 scale = parsedScale;
                 i++;
+                break;
+            case "--supersample" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedSupersample):
+                supersample = parsedSupersample;
+                i++;
+                break;
+            case "--sampling" when i + 1 < args.Length:
+                if (!TryParseTextureSampling(args[++i], out textureSampling))
+                {
+                    Console.Error.WriteLine("Invalid --sampling value. Use nearest or bilinear.");
+                    return 1;
+                }
+
+                break;
+            case "--high-quality":
+                textureSampling = SbSceneTextureSampling.Bilinear;
+                supersample = Math.Max(supersample, 4);
                 break;
             case "--background" when i + 1 < args.Length:
                 if (!TryParseColor(args[++i], out background))
@@ -247,6 +265,8 @@ static int Render(string[] args)
     {
         Padding = padding,
         Scale = scale,
+        Supersample = supersample,
+        TextureSampling = textureSampling,
         BackgroundColor = background,
         ShowHiddenNodes = showHidden,
         RenderSecondaryImages = renderSecondary,
@@ -5905,6 +5925,26 @@ static bool TryParseAnimationSelection(string text, out SbSceneAnimationSelectio
     return true;
 }
 
+static bool TryParseTextureSampling(string text, out SbSceneTextureSampling textureSampling)
+{
+    if (string.Equals(text, "nearest", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(text, "point", StringComparison.OrdinalIgnoreCase))
+    {
+        textureSampling = SbSceneTextureSampling.Nearest;
+        return true;
+    }
+
+    if (string.Equals(text, "bilinear", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(text, "linear", StringComparison.OrdinalIgnoreCase))
+    {
+        textureSampling = SbSceneTextureSampling.Bilinear;
+        return true;
+    }
+
+    textureSampling = SbSceneTextureSampling.Nearest;
+    return false;
+}
+
 static bool TryParseColor(string text, out RgbaColor color)
 {
     color = RgbaColor.Transparent;
@@ -5969,7 +6009,7 @@ static void PrintUsage()
     Console.WriteLine("  SbScene.Cli dump <file> --json <out> [--markdown <out>]");
     Console.WriteLine("  SbScene.Cli dump <file> --markdown <out> [--json <out>]");
     Console.WriteLine("  SbScene.Cli extract-images <sbscene> <svo> --out <dir> [--no-atlas]");
-    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--animation <name[@frame]>] [--background <color>] [--scale <n>] [--padding <px>] [--show-hidden] [--render-secondary]");
+    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--animation <name[@frame]>] [--background <color>] [--scale <n>] [--supersample <n>] [--sampling <mode>] [--high-quality] [--padding <px>] [--show-hidden] [--render-secondary]");
 }
 
 static void PrintRenderUsage()
@@ -5983,6 +6023,9 @@ static void PrintRenderUsage()
     Console.WriteLine("  --animation <name[@frame]> Apply an animation at a frame. Can be specified multiple times; later selections override earlier state.");
     Console.WriteLine("  --background <color>      transparent, #RRGGBB, or #AARRGGBB.");
     Console.WriteLine("  --scale <n>               Output scale. Default: 1.");
+    Console.WriteLine("  --sampling <mode>         Texture sampling: nearest or bilinear. Default: nearest.");
+    Console.WriteLine("  --supersample <n>         Render internally at n times the output scale, then box downsample. 1..8, default: 1.");
+    Console.WriteLine("  --high-quality            Shortcut for --sampling bilinear --supersample 4.");
     Console.WriteLine("  --padding <px>            Transparent padding around content. Default: 80.");
     Console.WriteLine("  --show-hidden             Render nodes even if display state is false.");
     Console.WriteLine("  --render-secondary        Also render secondary CIMG references.");

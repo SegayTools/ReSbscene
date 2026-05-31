@@ -10,6 +10,10 @@ public sealed class SbSceneRenderOptions
 
     public double Scale { get; init; } = 1.0;
 
+    public int Supersample { get; init; } = 1;
+
+    public SbSceneTextureSampling TextureSampling { get; init; } = SbSceneTextureSampling.Nearest;
+
     public RgbaColor BackgroundColor { get; init; } = RgbaColor.Transparent;
 
     public bool ShowHiddenNodes { get; init; }
@@ -17,6 +21,12 @@ public sealed class SbSceneRenderOptions
     public bool RenderSecondaryImages { get; init; }
 
     public IReadOnlyList<SbSceneAnimationSelection> Animations { get; init; } = Array.Empty<SbSceneAnimationSelection>();
+}
+
+public enum SbSceneTextureSampling
+{
+    Nearest,
+    Bilinear,
 }
 
 public sealed record SbSceneAnimationSelection(string Name, double Frame);
@@ -57,6 +67,11 @@ public static class SbScenePngRenderer
             throw new ArgumentOutOfRangeException(nameof(options), "Render padding must be non-negative.");
         }
 
+        if (options.Supersample is < 1 or > 8)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Supersample factor must be between 1 and 8.");
+        }
+
         var warnings = new List<string>();
         var warningSet = new HashSet<string>(StringComparer.Ordinal);
         void AddWarning(string warning)
@@ -86,7 +101,10 @@ public static class SbScenePngRenderer
         var contentBounds = ComputeBounds(layers);
         var width = Math.Max(1, (int)Math.Ceiling((contentBounds.Width + options.Padding * 2) * options.Scale));
         var height = Math.Max(1, (int)Math.Ceiling((contentBounds.Height + options.Padding * 2) * options.Scale));
-        var output = CreateImage(width, height, options.BackgroundColor);
+        var renderScale = options.Scale * options.Supersample;
+        var renderWidth = width * options.Supersample;
+        var renderHeight = height * options.Supersample;
+        var output = CreateImage(renderWidth, renderHeight, options.BackgroundColor);
         var resources = RenderResourceResolver.Load(scene, svoPath, AddWarning);
         var offsetX = options.Padding - contentBounds.Left;
         var offsetY = options.Padding - contentBounds.Top;
@@ -100,15 +118,16 @@ public static class SbScenePngRenderer
                 continue;
             }
 
-            if (DrawLayer(output, crop, layer, offsetX, offsetY, options.Scale))
+            if (DrawLayer(output, crop, layer, offsetX, offsetY, renderScale, options.TextureSampling))
             {
                 rendered++;
             }
         }
 
+        var finalImage = options.Supersample == 1 ? output : DownsampleBox(output, width, height, options.Supersample);
         return new SbSceneRenderResult
         {
-            Image = output,
+            Image = finalImage,
             RenderedItemCount = rendered,
             CandidateItemCount = layers.Count,
             Warnings = warnings,
@@ -135,6 +154,7 @@ public static class SbScenePngRenderer
         {
             var transform = node.Transform2D;
             var material = transform?.MaterialColor;
+            var illumination = transform?.IlluminationColor;
             return new NodeRenderState
             {
                 TranslationX = transform?.Translation?.X ?? 0,
@@ -147,8 +167,32 @@ public static class SbScenePngRenderer
                 MaterialG = material?.G ?? byte.MaxValue,
                 MaterialB = material?.B ?? byte.MaxValue,
                 MaterialA = material?.A ?? byte.MaxValue,
+                IlluminationR = illumination?.R ?? byte.MinValue,
+                IlluminationG = illumination?.G ?? byte.MinValue,
+                IlluminationB = illumination?.B ?? byte.MinValue,
+                IlluminationA = illumination?.A ?? byte.MinValue,
+                VertexColors = BuildVertexColors(transform),
             };
         }).ToArray();
+    }
+
+    private static IReadOnlyList<RgbaColor> BuildVertexColors(Transform2DInfo? transform)
+    {
+        if (transform is null || transform.VertexColors.Count == 0)
+        {
+            return [SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite, SbSceneColorConventions.OpaqueWhite];
+        }
+
+        var colors = transform.VertexColors
+            .Take(4)
+            .Select(static color => new RgbaColor(color.R, color.G, color.B, color.A))
+            .ToList();
+        while (colors.Count < 4)
+        {
+            colors.Add(SbSceneColorConventions.OpaqueWhite);
+        }
+
+        return colors;
     }
 
     private static IReadOnlyList<ImageCastRenderState> BuildInitialImageStates(IReadOnlyList<SbSceneImageCast> imageCasts)
@@ -268,17 +312,29 @@ public static class SbScenePngRenderer
             case 19 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double secondaryIndex:
                 ApplyImageReferenceIndex(nodeIndex, imageCastsByNode, imageStates, primary: false, (int)Math.Round(secondaryIndex));
                 break;
-            case 21 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double red:
-                state.MaterialR = ToByteChannel(red);
+            case 21 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialRed:
+                state.MaterialR = ToByteChannel(materialRed);
                 break;
-            case 22 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double green:
-                state.MaterialG = ToByteChannel(green);
+            case 22 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialGreen:
+                state.MaterialG = ToByteChannel(materialGreen);
                 break;
-            case 23 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double blue:
-                state.MaterialB = ToByteChannel(blue);
+            case 23 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialBlue:
+                state.MaterialB = ToByteChannel(materialBlue);
                 break;
-            case 24 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double alpha:
-                state.MaterialA = ToByteChannel(alpha);
+            case 24 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double materialAlpha:
+                state.MaterialA = ToByteChannel(materialAlpha);
+                break;
+            case 25 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationRed:
+                state.IlluminationR = ToByteChannel(illuminationRed);
+                break;
+            case 26 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationGreen:
+                state.IlluminationG = ToByteChannel(illuminationGreen);
+                break;
+            case 27 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationBlue:
+                state.IlluminationB = ToByteChannel(illuminationBlue);
+                break;
+            case 28 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationAlpha:
+                state.IlluminationA = ToByteChannel(illuminationAlpha);
                 break;
         }
     }
@@ -417,6 +473,9 @@ public static class SbScenePngRenderer
                     WorldTransform = world,
                     WorldBounds = worldBounds,
                     EffectiveOpacity = opacity,
+                    AdditiveBlend = SbSceneImageCastConventions.HasAdditiveBlendCandidate(imageCast),
+                    FlipX = SbSceneImageCastConventions.HasHorizontalFlip(imageCast),
+                    FlipY = SbSceneImageCastConventions.HasVerticalFlip(imageCast),
                     Reference = references[index],
                 });
             }
@@ -473,7 +532,8 @@ public static class SbScenePngRenderer
         RenderLayer layer,
         double offsetX,
         double offsetY,
-        double scale)
+        double scale,
+        SbSceneTextureSampling textureSampling)
     {
         if (!layer.WorldTransform.TryInvert(out var inverse))
         {
@@ -500,19 +560,23 @@ public static class SbScenePngRenderer
 
                 var u = (local.X - layer.LocalRect.Left) / layer.LocalRect.Width;
                 var v = (local.Y - layer.LocalRect.Top) / layer.LocalRect.Height;
-                var sourceX = Math.Clamp((int)Math.Floor(u * crop.Width), 0, crop.Width - 1);
-                var sourceY = Math.Clamp((int)Math.Floor(v * crop.Height), 0, crop.Height - 1);
-                var sourceOffset = (sourceY * crop.Width + sourceX) * 4;
-                var sourceAlpha = crop.Pixels[sourceOffset + 3] * layer.EffectiveOpacity;
+                SampleCrop(crop, u, v, layer.FlipX, layer.FlipY, textureSampling, out var sampleR, out var sampleG, out var sampleB, out var sampleA);
+                var sourceAlpha = sampleA * layer.EffectiveOpacity;
                 if (sourceAlpha <= 0)
                 {
                     continue;
                 }
 
-                var sourceR = crop.Pixels[sourceOffset] * (layer.NodeState.MaterialR / 255.0);
-                var sourceG = crop.Pixels[sourceOffset + 1] * (layer.NodeState.MaterialG / 255.0);
-                var sourceB = crop.Pixels[sourceOffset + 2] * (layer.NodeState.MaterialB / 255.0);
-                BlendPixel(output.Pixels, (y * output.Width + x) * 4, sourceR, sourceG, sourceB, sourceAlpha);
+                var vertexColor = SbSceneColorConventions.InterpolateVertexColor(layer.NodeState.VertexColors, u, v);
+                var litColor = SbSceneColorConventions.ApplyLighting(
+                    sampleR,
+                    sampleG,
+                    sampleB,
+                    sourceAlpha,
+                    layer.NodeState.MaterialColor,
+                    layer.NodeState.IlluminationColor,
+                    vertexColor);
+                BlendPixel(output.Pixels, (y * output.Width + x) * 4, litColor.R, litColor.G, litColor.B, litColor.A, layer.AdditiveBlend);
                 drewAny = true;
             }
         }
@@ -520,7 +584,160 @@ public static class SbScenePngRenderer
         return drewAny;
     }
 
-    private static void BlendPixel(byte[] pixels, int offset, double sourceR, double sourceG, double sourceB, double sourceAlphaByte)
+    private static void SampleCrop(
+        RgbaImage crop,
+        double u,
+        double v,
+        bool flipX,
+        bool flipY,
+        SbSceneTextureSampling textureSampling,
+        out double r,
+        out double g,
+        out double b,
+        out double a)
+    {
+        if (textureSampling == SbSceneTextureSampling.Bilinear)
+        {
+            SampleCropBilinear(crop, u, v, flipX, flipY, out r, out g, out b, out a);
+            return;
+        }
+
+        var sourceX = ToSourceCoordinate(u, crop.Width, flipX);
+        var sourceY = ToSourceCoordinate(v, crop.Height, flipY);
+        var sourceOffset = (sourceY * crop.Width + sourceX) * 4;
+        r = crop.Pixels[sourceOffset];
+        g = crop.Pixels[sourceOffset + 1];
+        b = crop.Pixels[sourceOffset + 2];
+        a = crop.Pixels[sourceOffset + 3];
+    }
+
+    private static int ToSourceCoordinate(double unitCoordinate, int size, bool flipped)
+    {
+        var source = Math.Clamp((int)Math.Floor(unitCoordinate * size), 0, size - 1);
+        return flipped ? size - 1 - source : source;
+    }
+
+    private static void SampleCropBilinear(
+        RgbaImage crop,
+        double u,
+        double v,
+        bool flipX,
+        bool flipY,
+        out double r,
+        out double g,
+        out double b,
+        out double a)
+    {
+        var sourceX = ToSourceCoordinateForInterpolation(u, crop.Width, flipX);
+        var sourceY = ToSourceCoordinateForInterpolation(v, crop.Height, flipY);
+        var x0 = Math.Clamp((int)Math.Floor(sourceX), 0, crop.Width - 1);
+        var y0 = Math.Clamp((int)Math.Floor(sourceY), 0, crop.Height - 1);
+        var x1 = Math.Min(x0 + 1, crop.Width - 1);
+        var y1 = Math.Min(y0 + 1, crop.Height - 1);
+        var tx = Math.Clamp(sourceX - x0, 0, 1);
+        var ty = Math.Clamp(sourceY - y0, 0, 1);
+
+        ReadPixelPremultiplied(crop, x0, y0, out var r00, out var g00, out var b00, out var a00);
+        ReadPixelPremultiplied(crop, x1, y0, out var r10, out var g10, out var b10, out var a10);
+        ReadPixelPremultiplied(crop, x0, y1, out var r01, out var g01, out var b01, out var a01);
+        ReadPixelPremultiplied(crop, x1, y1, out var r11, out var g11, out var b11, out var a11);
+
+        var topR = Lerp(r00, r10, tx);
+        var topG = Lerp(g00, g10, tx);
+        var topB = Lerp(b00, b10, tx);
+        var topA = Lerp(a00, a10, tx);
+        var bottomR = Lerp(r01, r11, tx);
+        var bottomG = Lerp(g01, g11, tx);
+        var bottomB = Lerp(b01, b11, tx);
+        var bottomA = Lerp(a01, a11, tx);
+
+        var premulR = Lerp(topR, bottomR, ty);
+        var premulG = Lerp(topG, bottomG, ty);
+        var premulB = Lerp(topB, bottomB, ty);
+        a = Lerp(topA, bottomA, ty);
+        if (a <= 0)
+        {
+            r = 0;
+            g = 0;
+            b = 0;
+            return;
+        }
+
+        r = premulR / a;
+        g = premulG / a;
+        b = premulB / a;
+        a *= 255.0;
+    }
+
+    private static double ToSourceCoordinateForInterpolation(double unitCoordinate, int size, bool flipped)
+    {
+        var source = Math.Clamp(unitCoordinate * size - 0.5, 0, size - 1);
+        return flipped ? size - 1 - source : source;
+    }
+
+    private static void ReadPixelPremultiplied(RgbaImage image, int x, int y, out double r, out double g, out double b, out double a)
+    {
+        var offset = (y * image.Width + x) * 4;
+        a = image.Pixels[offset + 3] / 255.0;
+        r = image.Pixels[offset] * a;
+        g = image.Pixels[offset + 1] * a;
+        b = image.Pixels[offset + 2] * a;
+    }
+
+    private static double Lerp(double left, double right, double amount)
+    {
+        return left + (right - left) * amount;
+    }
+
+    private static RgbaImage DownsampleBox(RgbaImage input, int width, int height, int factor)
+    {
+        var output = new byte[width * height * 4];
+        var sampleCount = factor * factor;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var alphaSum = 0.0;
+                var premulR = 0.0;
+                var premulG = 0.0;
+                var premulB = 0.0;
+                for (var sampleY = 0; sampleY < factor; sampleY++)
+                {
+                    var sourceY = y * factor + sampleY;
+                    for (var sampleX = 0; sampleX < factor; sampleX++)
+                    {
+                        var sourceX = x * factor + sampleX;
+                        var sourceOffset = (sourceY * input.Width + sourceX) * 4;
+                        var alpha = input.Pixels[sourceOffset + 3] / 255.0;
+                        alphaSum += alpha;
+                        premulR += input.Pixels[sourceOffset] * alpha;
+                        premulG += input.Pixels[sourceOffset + 1] * alpha;
+                        premulB += input.Pixels[sourceOffset + 2] * alpha;
+                    }
+                }
+
+                var averageAlpha = alphaSum / sampleCount;
+                var destinationOffset = (y * width + x) * 4;
+                if (averageAlpha <= 0)
+                {
+                    output[destinationOffset] = 0;
+                    output[destinationOffset + 1] = 0;
+                    output[destinationOffset + 2] = 0;
+                    output[destinationOffset + 3] = 0;
+                    continue;
+                }
+
+                output[destinationOffset] = ToByte(premulR / alphaSum);
+                output[destinationOffset + 1] = ToByte(premulG / alphaSum);
+                output[destinationOffset + 2] = ToByte(premulB / alphaSum);
+                output[destinationOffset + 3] = ToByte(averageAlpha * 255.0);
+            }
+        }
+
+        return new RgbaImage(width, height, output);
+    }
+
+    private static void BlendPixel(byte[] pixels, int offset, double sourceR, double sourceG, double sourceB, double sourceAlphaByte, bool additive)
     {
         var sourceA = sourceAlphaByte / 255.0;
         var destinationA = pixels[offset + 3] / 255.0;
@@ -534,9 +751,10 @@ public static class SbScenePngRenderer
             return;
         }
 
-        pixels[offset] = ToByte((sourceR * sourceA + pixels[offset] * destinationA * (1.0 - sourceA)) / outA);
-        pixels[offset + 1] = ToByte((sourceG * sourceA + pixels[offset + 1] * destinationA * (1.0 - sourceA)) / outA);
-        pixels[offset + 2] = ToByte((sourceB * sourceA + pixels[offset + 2] * destinationA * (1.0 - sourceA)) / outA);
+        var destinationScale = additive ? 1.0 : 1.0 - sourceA;
+        pixels[offset] = ToByte((sourceR * sourceA + pixels[offset] * destinationA * destinationScale) / outA);
+        pixels[offset + 1] = ToByte((sourceG * sourceA + pixels[offset + 1] * destinationA * destinationScale) / outA);
+        pixels[offset + 2] = ToByte((sourceB * sourceA + pixels[offset + 2] * destinationA * destinationScale) / outA);
         pixels[offset + 3] = ToByte(outA * 255.0);
     }
 
@@ -681,6 +899,20 @@ public static class SbScenePngRenderer
         public byte MaterialB { get; set; }
 
         public byte MaterialA { get; set; }
+
+        public byte IlluminationR { get; set; }
+
+        public byte IlluminationG { get; set; }
+
+        public byte IlluminationB { get; set; }
+
+        public byte IlluminationA { get; set; }
+
+        public required IReadOnlyList<RgbaColor> VertexColors { get; init; }
+
+        public RgbaColor MaterialColor => new(MaterialR, MaterialG, MaterialB, MaterialA);
+
+        public RgbaColor IlluminationColor => new(IlluminationR, IlluminationG, IlluminationB, IlluminationA);
     }
 
     private sealed class ImageCastRenderState
@@ -701,6 +933,12 @@ public static class SbScenePngRenderer
         public required RenderRect WorldBounds { get; init; }
 
         public required double EffectiveOpacity { get; init; }
+
+        public required bool AdditiveBlend { get; init; }
+
+        public required bool FlipX { get; init; }
+
+        public required bool FlipY { get; init; }
 
         public required SbSceneCropReference Reference { get; init; }
     }

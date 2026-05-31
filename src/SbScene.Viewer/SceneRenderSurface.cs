@@ -171,7 +171,20 @@ internal sealed class SceneRenderSurface : FrameworkElement
         else if (item.Bitmap is BitmapSource bitmap)
         {
             RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
+            if (item.FlipX || item.FlipY)
+            {
+                drawingContext.PushTransform(new ScaleTransform(
+                    item.FlipX ? -1 : 1,
+                    item.FlipY ? -1 : 1,
+                    item.LocalRect.Left + item.LocalRect.Width / 2,
+                    item.LocalRect.Top + item.LocalRect.Height / 2));
+            }
+
             drawingContext.DrawImage(bitmap, item.LocalRect);
+            if (item.FlipX || item.FlipY)
+            {
+                drawingContext.Pop();
+            }
         }
         else
         {

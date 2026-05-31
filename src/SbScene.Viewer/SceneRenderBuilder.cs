@@ -48,6 +48,10 @@ internal sealed class RenderItem
 
     public required double Opacity { get; init; }
 
+    public required bool FlipX { get; init; }
+
+    public required bool FlipY { get; init; }
+
     public string? ResourceInfo { get; init; }
 }
 
@@ -329,6 +333,8 @@ internal static class SceneRenderBuilder
                 Bitmap = bitmap,
                 PlaceholderColor = ColorFromText(node.Group),
                 Opacity = opacity,
+                FlipX = SbSceneImageCastConventions.HasHorizontalFlip(imageCast),
+                FlipY = SbSceneImageCastConventions.HasVerticalFlip(imageCast),
                 ResourceInfo = resourceInfo,
             });
         }
@@ -360,6 +366,8 @@ internal static class SceneRenderBuilder
                     WorldBounds = TransformRect(localRect, transform),
                     PlaceholderColor = ColorFromText(node.Group),
                     Opacity = 0.85,
+                    FlipX = false,
+                    FlipY = false,
                     ResourceInfo = "node marker",
                 });
             }
