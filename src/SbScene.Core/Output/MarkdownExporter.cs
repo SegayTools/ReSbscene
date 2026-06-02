@@ -737,7 +737,7 @@ public static class MarkdownExporter
         builder.AppendLine();
         builder.AppendLine("状态轨道按动画分布：");
         builder.AppendLine();
-        builder.AppendLine("| Animation | Display | Primary variant | Secondary variant | Alpha/Opacity |");
+        builder.AppendLine("| Animation | Display | Primary variant | Secondary variant | Material alpha |");
         builder.AppendLine("| --- | ---: | ---: | ---: | ---: |");
         foreach (var group in rows.GroupBy(static row => row.AnimationName, StringComparer.Ordinal)
             .OrderBy(static group => group.First().AnimationIndex))
@@ -916,9 +916,9 @@ public static class MarkdownExporter
             return;
         }
 
-        builder.AppendLine("## Alpha/Opacity track 证据");
+        builder.AppendLine("## Material alpha track 证据");
         builder.AppendLine();
-        builder.AppendLine("`type 24(AlphaOrOpacity)` 仍按 opacity/alpha 候选保留。下表把它与目标节点初始材质 alpha、display、CIMG 绑定和动画类别交叉统计；`Material alpha matches` 使用 `<= 0.01` 的近似阈值。");
+        builder.AppendLine("`type 24(MaterialAlpha)` 写入 `MaterialColor.A`，并通过父链乘法形成 effective opacity。下表把它与目标节点初始材质 alpha、display、CIMG 绑定和动画类别交叉统计；`Material alpha matches` 使用 `<= 0.01` 的近似阈值。");
         builder.AppendLine();
         builder.AppendLine($"总计：tracks {rows.Count}，keys {rows.Sum(static row => row.KeyCount)}，CIMG targets {rows.Count(static row => row.HasImageCast)}，display=false targets {rows.Count(static row => row.InitialDisplay == false)}，material alpha matches {rows.Count(static row => row.InitialAlphaMatched)} / {rows.Count(static row => row.InitialMaterialAlpha is not null)}。");
         builder.AppendLine();
@@ -939,7 +939,7 @@ public static class MarkdownExporter
         }
 
         builder.AppendLine();
-        builder.AppendLine("Alpha/Opacity track 样例：");
+        builder.AppendLine("Material alpha track 样例：");
         builder.AppendLine();
         builder.AppendLine("| Animation | Node | Flags | Group | CIMG | Display | Material alpha | Keys |");
         builder.AppendLine("| --- | --- | ---: | --- | ---: | --- | ---: | --- |");

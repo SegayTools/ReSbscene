@@ -1,5 +1,6 @@
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
+using System.Runtime.CompilerServices;
 
 namespace SbScene.Core.Rendering;
 
@@ -40,7 +41,7 @@ public sealed class SbSceneNodeAnimationState
 
     public byte IlluminationA { get; set; }
 
-    public required IReadOnlyList<RgbaColor> VertexColors { get; init; }
+    public required IReadOnlyList<RgbaColor> VertexColors { get; set; }
 
     public RgbaColor MaterialColor => new(MaterialR, MaterialG, MaterialB, MaterialA);
 
@@ -49,6 +50,10 @@ public sealed class SbSceneNodeAnimationState
 
 public sealed class SbSceneImageCastAnimationState
 {
+    public double Width { get; set; }
+
+    public double Height { get; set; }
+
     public int PrimaryReferenceIndex { get; set; }
 
     public int SecondaryReferenceIndex { get; set; }
@@ -57,16 +62,13 @@ public sealed class SbSceneImageCastAnimationState
 public static class SbSceneAnimationFrameBuilder
 {
     private const double Epsilon = 0.000001;
+    private static readonly ConditionalWeakTable<SbSceneFile, AnimationFrameCache> Caches = new();
 
     public static SbSceneAnimationFrameState BuildInitial(SbSceneFile scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
-        return new SbSceneAnimationFrameState
-        {
-            Nodes = BuildInitialNodeStates(scene.Surfboard.Nodes),
-            ImageCasts = BuildInitialImageStates(scene.Surfboard.Resources.ImageCasts),
-        };
+        return GetCache(scene).BuildInitial();
     }
 
     public static SbSceneAnimationFrameState Build(
@@ -77,7 +79,7 @@ public static class SbSceneAnimationFrameBuilder
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(selections);
 
-        var state = BuildInitial(scene);
+        var state = GetCache(scene).BuildInitial();
         ApplyAnimations(scene, state, selections, addWarning);
         return state;
     }
@@ -90,7 +92,7 @@ public static class SbSceneAnimationFrameBuilder
     {
         ArgumentNullException.ThrowIfNull(scene);
 
-        var state = BuildInitial(scene);
+        var state = GetCache(scene).BuildInitial();
         if (animation is not null)
         {
             ApplyAnimation(scene, state, animation, frame, addWarning);
@@ -114,21 +116,71 @@ public static class SbSceneAnimationFrameBuilder
             return;
         }
 
-        var animationsByName = scene.Surfboard.Animations
-            .Where(static animation => !string.IsNullOrWhiteSpace(animation.Name))
-            .GroupBy(static animation => animation.Name!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.OrdinalIgnoreCase);
-
+        var slots = new SortedDictionary<int, (AnimationInfo Animation, double Frame)>();
         foreach (var selection in selections)
         {
-            if (!animationsByName.TryGetValue(selection.Name, out var animation))
+            if (!TryResolveAnimationSelection(scene, selection, out var slotIndex, out var animation, out var warning))
             {
-                addWarning?.Invoke($"Animation '{selection.Name}' was not found.");
+                addWarning?.Invoke(warning);
                 continue;
             }
 
-            ApplyAnimation(scene, state, animation, selection.Frame, addWarning);
+            slots[slotIndex] = (animation, selection.Frame);
         }
+
+        foreach (var (_, (animation, frame)) in slots)
+        {
+            ApplyAnimation(scene, state, animation, frame, addWarning);
+        }
+    }
+
+    private static bool TryResolveAnimationSelection(
+        SbSceneFile scene,
+        SbSceneAnimationSelection selection,
+        out int slotIndex,
+        out AnimationInfo animation,
+        out string warning)
+    {
+        if (selection.Index is int index)
+        {
+            if (index >= 0 && index < scene.Surfboard.Animations.Count)
+            {
+                slotIndex = index;
+                animation = scene.Surfboard.Animations[index];
+                warning = string.Empty;
+                return true;
+            }
+
+            slotIndex = -1;
+            animation = null!;
+            warning = $"Animation slot #{index} was not found.";
+            return false;
+        }
+
+        var cache = GetCache(scene);
+        if (cache.AnimationsByName.TryGetValue(selection.Name, out animation!))
+        {
+            slotIndex = FindAnimationSlotIndex(scene.Surfboard.Animations, animation);
+            warning = string.Empty;
+            return true;
+        }
+
+        slotIndex = -1;
+        warning = $"Animation '{selection.Name}' was not found.";
+        return false;
+    }
+
+    private static int FindAnimationSlotIndex(IReadOnlyList<AnimationInfo> animations, AnimationInfo animation)
+    {
+        for (var i = 0; i < animations.Count; i++)
+        {
+            if (ReferenceEquals(animations[i], animation))
+            {
+                return i;
+            }
+        }
+
+        return animation.Index;
     }
 
     public static void ApplyAnimation(
@@ -148,17 +200,11 @@ public static class SbSceneAnimationFrameBuilder
             return;
         }
 
-        var imageCastsByNode = scene.Surfboard.Resources.ImageCasts
-            .GroupBy(static imageCast => imageCast.CastIndex)
-            .ToDictionary(static group => group.Key, static group => group.ToArray());
-        var nodeIndexByName = scene.Surfboard.Nodes
-            .Where(static node => !string.IsNullOrWhiteSpace(node.Name))
-            .GroupBy(static node => node.Name!, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(static group => group.Key, static group => group.First().Index, StringComparer.OrdinalIgnoreCase);
+        var cache = GetCache(scene);
 
         foreach (var motion in animation.Motions)
         {
-            var nodeIndex = ResolveMotionNodeIndex(scene.Surfboard.Nodes, nodeIndexByName, motion);
+            var nodeIndex = ResolveMotionNodeIndex(scene.Surfboard.Nodes, cache.NodeIndexByName, motion);
             if (nodeIndex is null || nodeIndex < 0 || nodeIndex >= state.Nodes.Count)
             {
                 continue;
@@ -167,9 +213,14 @@ public static class SbSceneAnimationFrameBuilder
             var nodeState = state.Nodes[nodeIndex.Value];
             foreach (var track in motion.Tracks)
             {
-                ApplyTrack(track, frame, nodeState, nodeIndex.Value, imageCastsByNode, state.ImageCasts);
+                ApplyTrack(track, frame, nodeState, nodeIndex.Value, cache.ImageCastsByNode, state.ImageCasts);
             }
         }
+    }
+
+    private static AnimationFrameCache GetCache(SbSceneFile scene)
+    {
+        return Caches.GetValue(scene, static cachedScene => new AnimationFrameCache(cachedScene));
     }
 
     private static IReadOnlyList<SbSceneNodeAnimationState> BuildInitialNodeStates(IReadOnlyList<NodeInfo> nodes)
@@ -191,10 +242,10 @@ public static class SbSceneAnimationFrameBuilder
                 MaterialG = material?.G ?? byte.MaxValue,
                 MaterialB = material?.B ?? byte.MaxValue,
                 MaterialA = material?.A ?? byte.MaxValue,
-                IlluminationR = illumination?.R ?? byte.MinValue,
-                IlluminationG = illumination?.G ?? byte.MinValue,
-                IlluminationB = illumination?.B ?? byte.MinValue,
-                IlluminationA = illumination?.A ?? byte.MinValue,
+                IlluminationR = illumination?.R ?? SbSceneColorConventions.OpaqueBlack.R,
+                IlluminationG = illumination?.G ?? SbSceneColorConventions.OpaqueBlack.G,
+                IlluminationB = illumination?.B ?? SbSceneColorConventions.OpaqueBlack.B,
+                IlluminationA = illumination?.A ?? SbSceneColorConventions.OpaqueBlack.A,
                 VertexColors = BuildVertexColors(transform),
             };
         }).ToArray();
@@ -223,6 +274,8 @@ public static class SbSceneAnimationFrameBuilder
     {
         return imageCasts.Select(static imageCast => new SbSceneImageCastAnimationState
         {
+            Width = imageCast.Width,
+            Height = imageCast.Height,
             PrimaryReferenceIndex = ClampReferenceIndex(imageCast.PrimaryCropReferenceIndex, imageCast.PrimaryCropReferences.Count),
             SecondaryReferenceIndex = ClampReferenceIndex(imageCast.SecondaryCropReferenceIndex, imageCast.SecondaryCropReferences.Count),
         }).ToArray();
@@ -276,6 +329,12 @@ public static class SbSceneAnimationFrameBuilder
             case 11 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double display:
                 state.Display = display >= 0.5;
                 break;
+            case 12 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double width:
+                ApplyImageDimension(nodeIndex, imageCastsByNode, imageStates, width, setWidth: true);
+                break;
+            case 13 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double height:
+                ApplyImageDimension(nodeIndex, imageCastsByNode, imageStates, height, setWidth: false);
+                break;
             case 18 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double primaryIndex:
                 ApplyImageReferenceIndex(nodeIndex, imageCastsByNode, imageStates, primary: true, (int)Math.Round(primaryIndex));
                 break;
@@ -306,6 +365,63 @@ public static class SbSceneAnimationFrameBuilder
             case 28 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double illuminationAlpha:
                 state.IlluminationA = ToByteChannel(illuminationAlpha);
                 break;
+            case >= 29 and <= 44 when SbSceneAnimationEvaluator.EvaluateTrack(track, frame) is double vertexChannel:
+                ApplyVertexColorChannel(state, track.TrackType.Value, vertexChannel);
+                break;
+        }
+    }
+
+    private static void ApplyVertexColorChannel(SbSceneNodeAnimationState state, int trackType, double value)
+    {
+        var relative = trackType - 29;
+        var vertexIndex = relative / 4;
+        if (vertexIndex < 0 || vertexIndex >= 4)
+        {
+            return;
+        }
+
+        var colors = state.VertexColors.Count >= 4
+            ? state.VertexColors.Take(4).ToArray()
+            : state.VertexColors.Concat(Enumerable.Repeat(SbSceneColorConventions.OpaqueWhite, 4)).Take(4).ToArray();
+        var channel = relative & 3;
+        var color = colors[vertexIndex];
+        colors[vertexIndex] = channel switch
+        {
+            0 => color with { R = ToByteChannel(value) },
+            1 => color with { G = ToByteChannel(value) },
+            2 => color with { B = ToByteChannel(value) },
+            _ => color with { A = ToByteChannel(value) },
+        };
+        state.VertexColors = colors;
+    }
+
+    private static void ApplyImageDimension(
+        int nodeIndex,
+        IReadOnlyDictionary<int, SbSceneImageCast[]> imageCastsByNode,
+        IReadOnlyList<SbSceneImageCastAnimationState> imageStates,
+        double value,
+        bool setWidth)
+    {
+        if (!double.IsFinite(value) || value <= 0 || !imageCastsByNode.TryGetValue(nodeIndex, out var imageCasts))
+        {
+            return;
+        }
+
+        foreach (var imageCast in imageCasts)
+        {
+            if (imageCast.Index < 0 || imageCast.Index >= imageStates.Count)
+            {
+                continue;
+            }
+
+            if (setWidth)
+            {
+                imageStates[imageCast.Index].Width = value;
+            }
+            else
+            {
+                imageStates[imageCast.Index].Height = value;
+            }
         }
     }
 
@@ -349,5 +465,76 @@ public static class SbSceneAnimationFrameBuilder
     {
         var scaled = value is >= 0 and <= 1.0 + Epsilon ? value * 255.0 : value;
         return (byte)Math.Clamp((int)Math.Round(scaled), byte.MinValue, byte.MaxValue);
+    }
+
+    private sealed class AnimationFrameCache
+    {
+        private readonly IReadOnlyList<SbSceneNodeAnimationState> _initialNodes;
+        private readonly IReadOnlyList<SbSceneImageCastAnimationState> _initialImageCasts;
+
+        public AnimationFrameCache(SbSceneFile scene)
+        {
+            AnimationsByName = scene.Surfboard.Animations
+                .Where(static animation => !string.IsNullOrWhiteSpace(animation.Name))
+                .GroupBy(static animation => animation.Name!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.OrdinalIgnoreCase);
+            ImageCastsByNode = scene.Surfboard.Resources.ImageCasts
+                .GroupBy(static imageCast => imageCast.CastIndex)
+                .ToDictionary(static group => group.Key, static group => group.ToArray());
+            NodeIndexByName = scene.Surfboard.Nodes
+                .Where(static node => !string.IsNullOrWhiteSpace(node.Name))
+                .GroupBy(static node => node.Name!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(static group => group.Key, static group => group.First().Index, StringComparer.OrdinalIgnoreCase);
+            _initialNodes = BuildInitialNodeStates(scene.Surfboard.Nodes);
+            _initialImageCasts = BuildInitialImageStates(scene.Surfboard.Resources.ImageCasts);
+        }
+
+        public IReadOnlyDictionary<string, AnimationInfo> AnimationsByName { get; }
+
+        public IReadOnlyDictionary<int, SbSceneImageCast[]> ImageCastsByNode { get; }
+
+        public IReadOnlyDictionary<string, int> NodeIndexByName { get; }
+
+        public SbSceneAnimationFrameState BuildInitial()
+        {
+            return new SbSceneAnimationFrameState
+            {
+                Nodes = _initialNodes.Select(CloneNodeState).ToArray(),
+                ImageCasts = _initialImageCasts.Select(CloneImageCastState).ToArray(),
+            };
+        }
+
+        private static SbSceneNodeAnimationState CloneNodeState(SbSceneNodeAnimationState source)
+        {
+            return new SbSceneNodeAnimationState
+            {
+                TranslationX = source.TranslationX,
+                TranslationY = source.TranslationY,
+                RotationDegrees = source.RotationDegrees,
+                ScaleX = source.ScaleX,
+                ScaleY = source.ScaleY,
+                Display = source.Display,
+                MaterialR = source.MaterialR,
+                MaterialG = source.MaterialG,
+                MaterialB = source.MaterialB,
+                MaterialA = source.MaterialA,
+                IlluminationR = source.IlluminationR,
+                IlluminationG = source.IlluminationG,
+                IlluminationB = source.IlluminationB,
+                IlluminationA = source.IlluminationA,
+                VertexColors = source.VertexColors.ToArray(),
+            };
+        }
+
+        private static SbSceneImageCastAnimationState CloneImageCastState(SbSceneImageCastAnimationState source)
+        {
+            return new SbSceneImageCastAnimationState
+            {
+                Width = source.Width,
+                Height = source.Height,
+                PrimaryReferenceIndex = source.PrimaryReferenceIndex,
+                SecondaryReferenceIndex = source.SecondaryReferenceIndex,
+            };
+        }
     }
 }

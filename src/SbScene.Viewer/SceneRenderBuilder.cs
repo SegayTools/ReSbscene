@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
@@ -14,14 +15,17 @@ internal sealed record RenderSceneOptions(
     bool ShowNodeMarkers,
     IReadOnlySet<int> HiddenNodeIndexes,
     IReadOnlySet<int> ShownNodeIndexes,
-    AnimationInfo? Animation,
-    double CurrentFrame);
+    IReadOnlyList<RenderSceneAnimationState> Animations);
+
+internal sealed record RenderSceneAnimationState(AnimationInfo Animation, double Frame);
 
 internal sealed class RenderScene
 {
     public required IReadOnlyList<RenderItem> Items { get; init; }
 
     public required Rect ContentBounds { get; init; }
+
+    public required IReadOnlyList<string> Warnings { get; init; }
 
     public Size SurfaceSize => new(
         Math.Max(320, ContentBounds.Width + SceneRenderSurface.ScenePadding * 2),
@@ -55,6 +59,178 @@ internal sealed class RenderItem
     public required bool FlipY { get; init; }
 
     public string? ResourceInfo { get; init; }
+}
+
+internal sealed class SceneRenderBuildCache
+{
+    public SceneRenderBuildCache(SbSceneFile scene)
+    {
+        Scene = scene;
+        Nodes = scene.Surfboard.Nodes;
+        ParentByNode = SbSceneRenderTree.BuildParentMap(Nodes);
+        ParentIndexes = BuildParentIndexes(Nodes, ParentByNode);
+        ImageCastNodeIndexes = scene.Surfboard.Resources.ImageCasts
+            .Select(static imageCast => imageCast.CastIndex)
+            .Where(static index => index >= 0)
+            .ToHashSet();
+        var warnings = new List<string>();
+        ImageEntries = BuildImageEntries(scene, warnings).ToArray();
+        NodeMarkerEntries = BuildNodeMarkerEntries(scene, ImageCastNodeIndexes).ToArray();
+        Warnings = warnings;
+    }
+
+    public SbSceneFile Scene { get; }
+
+    public IReadOnlyList<NodeInfo> Nodes { get; }
+
+    public IReadOnlyDictionary<int, int> ParentByNode { get; }
+
+    public IReadOnlyList<int> ParentIndexes { get; }
+
+    public IReadOnlySet<int> ImageCastNodeIndexes { get; }
+
+    public IReadOnlyList<ImageRenderEntry> ImageEntries { get; }
+
+    public IReadOnlyList<NodeMarkerRenderEntry> NodeMarkerEntries { get; }
+
+    public IReadOnlyList<string> Warnings { get; }
+
+    private static IReadOnlyList<int> BuildParentIndexes(
+        IReadOnlyList<NodeInfo> nodes,
+        IReadOnlyDictionary<int, int> parentByNode)
+    {
+        var indexes = new int[nodes.Count];
+        Array.Fill(indexes, -1);
+        for (var i = 0; i < nodes.Count; i++)
+        {
+            indexes[i] = parentByNode.TryGetValue(i, out var parentIndex) ? parentIndex : -1;
+        }
+
+        return indexes;
+    }
+
+    private static IEnumerable<ImageRenderEntry> BuildImageEntries(SbSceneFile scene, List<string> warnings)
+    {
+        var nodes = scene.Surfboard.Nodes;
+        foreach (var imageCast in scene.Surfboard.Resources.ImageCasts)
+        {
+            if (imageCast.CastIndex < 0 || imageCast.CastIndex >= nodes.Count)
+            {
+                continue;
+            }
+
+            var geometry = SbSceneImageCastConventions.ResolveAnimatedGeometry(imageCast, imageCast.Width, imageCast.Height);
+            var localRect = new Rect(-geometry.PivotX, -geometry.PivotY, geometry.Width, geometry.Height);
+            if (localRect.Width <= 0 || localRect.Height <= 0)
+            {
+                continue;
+            }
+
+            var node = nodes[imageCast.CastIndex];
+            var nodeName = node.Name ?? $"node_{node.Index}";
+            if (!HasCropReference(imageCast))
+            {
+                AddWarning(
+                    warnings,
+                    $"Skipped CIMG node '{nodeName}' (node {node.Index}, cast {imageCast.Index}) because it has no crop references.");
+                continue;
+            }
+
+            yield return new ImageRenderEntry
+            {
+                ImageCast = imageCast,
+                Node = node,
+                NodeName = nodeName,
+                Group = node.Group,
+                LocalRect = localRect,
+                PlaceholderColor = ColorFromText(node.Group),
+                FlipX = SbSceneImageCastConventions.HasHorizontalFlip(imageCast),
+                FlipY = SbSceneImageCastConventions.HasVerticalFlip(imageCast),
+            };
+        }
+    }
+
+    private static bool HasCropReference(SbSceneImageCast imageCast)
+    {
+        return imageCast.CropReferences.Count > 0
+            || imageCast.PrimaryCropReferences.Count > 0
+            || imageCast.SecondaryCropReferences.Count > 0;
+    }
+
+    private static void AddWarning(List<string> warnings, string warning)
+    {
+        warnings.Add(warning);
+        Debug.WriteLine($"SbScene.Viewer: {warning}");
+    }
+
+    private static IEnumerable<NodeMarkerRenderEntry> BuildNodeMarkerEntries(
+        SbSceneFile scene,
+        IReadOnlySet<int> imageCastNodeIndexes)
+    {
+        var localRect = new Rect(-4, -4, 8, 8);
+        foreach (var node in scene.Surfboard.Nodes)
+        {
+            if (imageCastNodeIndexes.Contains(node.Index))
+            {
+                continue;
+            }
+
+            yield return new NodeMarkerRenderEntry
+            {
+                Node = node,
+                NodeName = node.Name ?? $"node_{node.Index}",
+                Group = node.Group,
+                LocalRect = localRect,
+                PlaceholderColor = ColorFromText(node.Group),
+            };
+        }
+    }
+
+    private static Color ColorFromText(string text)
+    {
+        var hash = 2166136261u;
+        foreach (var ch in text)
+        {
+            hash = (hash ^ ch) * 16777619u;
+        }
+
+        return Color.FromRgb(
+            (byte)(80 + hash % 130),
+            (byte)(80 + (hash >> 8) % 130),
+            (byte)(80 + (hash >> 16) % 130));
+    }
+}
+
+internal sealed class ImageRenderEntry
+{
+    public required SbSceneImageCast ImageCast { get; init; }
+
+    public required NodeInfo Node { get; init; }
+
+    public required string NodeName { get; init; }
+
+    public required string Group { get; init; }
+
+    public required Rect LocalRect { get; init; }
+
+    public required Color PlaceholderColor { get; init; }
+
+    public required bool FlipX { get; init; }
+
+    public required bool FlipY { get; init; }
+}
+
+internal sealed class NodeMarkerRenderEntry
+{
+    public required NodeInfo Node { get; init; }
+
+    public required string NodeName { get; init; }
+
+    public required string Group { get; init; }
+
+    public required Rect LocalRect { get; init; }
+
+    public required Color PlaceholderColor { get; init; }
 }
 
 internal sealed class NodeRow
@@ -107,7 +283,8 @@ internal sealed class NodeTreeItem
 
 internal sealed class SvoRenderResources
 {
-    private readonly Dictionary<(int AtlasIndex, int CropIndex), BitmapSource> _cropCache = [];
+    private readonly Dictionary<(int AtlasIndex, int CropIndex), RgbaImage> _cropCache = [];
+    private readonly Dictionary<LitBitmapCacheKey, BitmapSource> _litBitmapCache = [];
 
     private SvoRenderResources(string path, IReadOnlyDictionary<int, RgbaImage> atlasImages, IReadOnlyList<string> warnings)
     {
@@ -164,13 +341,25 @@ internal sealed class SvoRenderResources
         SbSceneImageCast imageCast,
         out string? resourceInfo)
     {
-        return ResolveBitmap(scene, imageCast, imageCast.PrimaryCropReferenceIndex ?? 0, out resourceInfo);
+        return ResolveBitmap(
+            scene,
+            imageCast,
+            imageCast.PrimaryCropReferenceIndex ?? 0,
+            DefaultNodeState,
+            DefaultColorState,
+            flipX: false,
+            flipY: false,
+            out resourceInfo);
     }
 
     public BitmapSource? ResolveBitmap(
         SbSceneFile scene,
         SbSceneImageCast imageCast,
         int primaryReferenceIndex,
+        SbSceneNodeAnimationState nodeState,
+        SbSceneResolvedNodeColorState colorState,
+        bool flipX,
+        bool flipY,
         out string? resourceInfo)
     {
         resourceInfo = null;
@@ -204,7 +393,7 @@ internal sealed class SvoRenderResources
         if (_cropCache.TryGetValue(cacheKey, out var cached))
         {
             resourceInfo = $"{atlas.Name}[{reference.CropIndex}]";
-            return cached;
+            return ResolveLitBitmap(cached, cacheKey, nodeState, colorState, flipX, flipY);
         }
 
         var crop = atlas.Crops[reference.CropIndex];
@@ -215,9 +404,58 @@ internal sealed class SvoRenderResources
         }
 
         var cropped = atlasImage.CropWithTransparentPadding(crop.Left, crop.Top, crop.Width, crop.Height);
-        var bitmap = ToBitmapSource(cropped);
-        _cropCache[cacheKey] = bitmap;
+        _cropCache[cacheKey] = cropped;
         resourceInfo = $"{atlas.Name}[{reference.CropIndex}]";
+        return ResolveLitBitmap(cropped, cacheKey, nodeState, colorState, flipX, flipY);
+    }
+
+    private static SbSceneNodeAnimationState DefaultNodeState { get; } = new()
+    {
+        TranslationX = 0,
+        TranslationY = 0,
+        RotationDegrees = 0,
+        ScaleX = 1,
+        ScaleY = 1,
+        Display = true,
+        MaterialR = byte.MaxValue,
+        MaterialG = byte.MaxValue,
+        MaterialB = byte.MaxValue,
+        MaterialA = byte.MaxValue,
+        IlluminationR = SbSceneColorConventions.OpaqueBlack.R,
+        IlluminationG = SbSceneColorConventions.OpaqueBlack.G,
+        IlluminationB = SbSceneColorConventions.OpaqueBlack.B,
+        IlluminationA = SbSceneColorConventions.OpaqueBlack.A,
+        VertexColors =
+        [
+            SbSceneColorConventions.OpaqueWhite,
+            SbSceneColorConventions.OpaqueWhite,
+            SbSceneColorConventions.OpaqueWhite,
+            SbSceneColorConventions.OpaqueWhite,
+        ],
+    };
+
+    private static SbSceneResolvedNodeColorState DefaultColorState { get; } = new()
+    {
+        MaterialColor = SbSceneColorConventions.OpaqueWhite,
+        IlluminationColor = SbSceneColorConventions.OpaqueBlack,
+    };
+
+    private BitmapSource ResolveLitBitmap(
+        RgbaImage crop,
+        (int AtlasIndex, int CropIndex) cropKey,
+        SbSceneNodeAnimationState nodeState,
+        SbSceneResolvedNodeColorState colorState,
+        bool flipX,
+        bool flipY)
+    {
+        var key = LitBitmapCacheKey.Create(cropKey, nodeState, colorState, flipX, flipY);
+        if (_litBitmapCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var bitmap = ToLitBitmapSource(crop, nodeState, colorState, flipX, flipY);
+        _litBitmapCache[key] = bitmap;
         return bitmap;
     }
 
@@ -254,15 +492,41 @@ internal sealed class SvoRenderResources
             : null;
     }
 
-    private static BitmapSource ToBitmapSource(RgbaImage image)
+    private static BitmapSource ToLitBitmapSource(
+        RgbaImage image,
+        SbSceneNodeAnimationState nodeState,
+        SbSceneResolvedNodeColorState colorState,
+        bool flipX,
+        bool flipY)
     {
         var bgra = new byte[image.Pixels.Length];
-        for (var i = 0; i < image.Pixels.Length; i += 4)
+        var material = new RgbaColor(colorState.MaterialColor.R, colorState.MaterialColor.G, colorState.MaterialColor.B, byte.MaxValue);
+        var illumination = colorState.IlluminationColor;
+        for (var y = 0; y < image.Height; y++)
         {
-            bgra[i] = image.Pixels[i + 2];
-            bgra[i + 1] = image.Pixels[i + 1];
-            bgra[i + 2] = image.Pixels[i];
-            bgra[i + 3] = image.Pixels[i + 3];
+            var sourceV = (y + 0.5) / image.Height;
+            var vertexV = flipY ? 1.0 - sourceV : sourceV;
+            for (var x = 0; x < image.Width; x++)
+            {
+                var sourceOffset = (y * image.Width + x) * 4;
+                var sourceU = (x + 0.5) / image.Width;
+                // Texture flipping changes which source pixel lands on the quad; vertex color still belongs to the unflipped quad position.
+                var vertexU = flipX ? 1.0 - sourceU : sourceU;
+                var vertex = SbSceneColorConventions.InterpolateVertexColor(nodeState.VertexColors, vertexU, vertexV);
+                var lit = SbSceneColorConventions.ApplyLighting(
+                    image.Pixels[sourceOffset],
+                    image.Pixels[sourceOffset + 1],
+                    image.Pixels[sourceOffset + 2],
+                    image.Pixels[sourceOffset + 3],
+                    material,
+                    illumination,
+                    vertex);
+
+                bgra[sourceOffset] = ToByte(lit.B);
+                bgra[sourceOffset + 1] = ToByte(lit.G);
+                bgra[sourceOffset + 2] = ToByte(lit.R);
+                bgra[sourceOffset + 3] = ToByte(lit.A);
+            }
         }
 
         var bitmap = BitmapSource.Create(
@@ -277,40 +541,92 @@ internal sealed class SvoRenderResources
         bitmap.Freeze();
         return bitmap;
     }
+
+    private static byte ToByte(double value)
+    {
+        return (byte)Math.Clamp((int)Math.Round(value), byte.MinValue, byte.MaxValue);
+    }
+
+    private readonly record struct LitBitmapCacheKey(
+        int AtlasIndex,
+        int CropIndex,
+        RgbaColor MaterialRgb,
+        RgbaColor Illumination,
+        RgbaColor Vertex0,
+        RgbaColor Vertex1,
+        RgbaColor Vertex2,
+        RgbaColor Vertex3,
+        bool FlipX,
+        bool FlipY)
+    {
+        public static LitBitmapCacheKey Create(
+            (int AtlasIndex, int CropIndex) cropKey,
+            SbSceneNodeAnimationState nodeState,
+            SbSceneResolvedNodeColorState colorState,
+            bool flipX,
+            bool flipY)
+        {
+            return new LitBitmapCacheKey(
+                cropKey.AtlasIndex,
+                cropKey.CropIndex,
+                new RgbaColor(colorState.MaterialColor.R, colorState.MaterialColor.G, colorState.MaterialColor.B, byte.MaxValue),
+                colorState.IlluminationColor,
+                GetVertexColor(nodeState, 0),
+                GetVertexColor(nodeState, 1),
+                GetVertexColor(nodeState, 2),
+                GetVertexColor(nodeState, 3),
+                flipX,
+                flipY);
+        }
+
+        private static RgbaColor GetVertexColor(SbSceneNodeAnimationState nodeState, int index)
+        {
+            return index >= 0 && index < nodeState.VertexColors.Count
+                ? nodeState.VertexColors[index]
+                : SbSceneColorConventions.OpaqueWhite;
+        }
+    }
 }
 
 internal static class SceneRenderBuilder
 {
     public static RenderScene Build(SbSceneFile scene, SvoRenderResources? resources, RenderSceneOptions options)
     {
-        var nodes = scene.Surfboard.Nodes;
-        var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animation, options.CurrentFrame);
+        return Build(new SceneRenderBuildCache(scene), resources, options);
+    }
+
+    public static RenderScene Build(SceneRenderBuildCache cache, SvoRenderResources? resources, RenderSceneOptions options)
+    {
+        var scene = cache.Scene;
+        var nodes = cache.Nodes;
+        var frameState = SbSceneAnimationFrameBuilder.BuildInitial(scene);
+        foreach (var animation in options.Animations)
+        {
+            SbSceneAnimationFrameBuilder.ApplyAnimation(scene, frameState, animation.Animation, animation.Frame);
+        }
+
         var nodeStates = frameState.Nodes;
         var imageStates = frameState.ImageCasts;
-        var parentByNode = SbSceneRenderTree.BuildParentMap(nodes);
         var visibleNodes = SbSceneRenderTree.BuildFinalVisibility(
             nodes,
-            parentByNode,
+            cache.ParentByNode,
             index => nodeStates[index].Display,
             options.ShowHiddenNodes);
         var effectiveOpacities = SbSceneRenderTree.BuildEffectiveOpacity(
             nodes,
-            parentByNode,
+            cache.ParentByNode,
             index => nodeStates[index].MaterialA / 255.0);
-        var worldTransforms = BuildWorldTransforms(nodes, nodeStates, parentByNode);
-        var imageCastByNode = scene.Surfboard.Resources.ImageCasts
-            .GroupBy(static imageCast => imageCast.CastIndex)
-            .ToDictionary(static group => group.Key, static group => group.ToArray());
+        var effectiveColors = SbSceneRenderTree.BuildEffectiveColors(
+            nodes,
+            cache.ParentByNode,
+            index => nodeStates[index].MaterialColor,
+            index => nodeStates[index].IlluminationColor);
+        var worldTransforms = BuildWorldTransforms(nodes, nodeStates, cache.ParentIndexes);
         var items = new List<RenderItem>();
 
-        foreach (var imageCast in scene.Surfboard.Resources.ImageCasts)
+        foreach (var entry in cache.ImageEntries)
         {
-            if (imageCast.CastIndex < 0 || imageCast.CastIndex >= nodes.Count)
-            {
-                continue;
-            }
-
-            var node = nodes[imageCast.CastIndex];
+            var node = entry.Node;
             if (!ShouldRenderNode(node, options, visibleNodes))
             {
                 continue;
@@ -322,66 +638,72 @@ internal static class SceneRenderBuilder
                 continue;
             }
 
-            var localRect = new Rect(-imageCast.PivotX, -imageCast.PivotY, imageCast.Width, imageCast.Height);
+            var transform = worldTransforms[node.Index];
+            var imageCast = entry.ImageCast;
+            var imageState = imageCast.Index >= 0 && imageCast.Index < imageStates.Count
+                ? imageStates[imageCast.Index]
+                : null;
+            var localRect = imageState is null
+                ? entry.LocalRect
+                : CreateImageLocalRect(imageCast, imageState);
             if (localRect.Width <= 0 || localRect.Height <= 0)
             {
                 continue;
             }
 
-            var transform = worldTransforms[node.Index];
-            var imageState = imageCast.Index >= 0 && imageCast.Index < imageStates.Count
-                ? imageStates[imageCast.Index]
-                : null;
             string? resourceInfo = null;
             var bitmap = resources is null
                 ? null
-                : resources.ResolveBitmap(scene, imageCast, imageState?.PrimaryReferenceIndex ?? 0, out resourceInfo);
+                : resources.ResolveBitmap(
+                    scene,
+                    imageCast,
+                    imageState?.PrimaryReferenceIndex ?? 0,
+                    nodeStates[node.Index],
+                    effectiveColors[node.Index],
+                    entry.FlipX,
+                    entry.FlipY,
+                    out resourceInfo);
             resourceInfo ??= resources is null ? "no SVO bound" : null;
             var worldBounds = TransformRect(localRect, transform);
             items.Add(new RenderItem
             {
                 NodeIndex = node.Index,
-                NodeName = node.Name ?? $"node_{node.Index}",
-                Group = node.Group,
+                NodeName = entry.NodeName,
+                Group = entry.Group,
                 Kind = "image",
                 WorldTransform = transform,
                 LocalRect = localRect,
                 WorldBounds = worldBounds,
                 Bitmap = bitmap,
-                PlaceholderColor = ColorFromText(node.Group),
+                PlaceholderColor = entry.PlaceholderColor,
                 Opacity = opacity,
-                FlipX = SbSceneImageCastConventions.HasHorizontalFlip(imageCast),
-                FlipY = SbSceneImageCastConventions.HasVerticalFlip(imageCast),
+                FlipX = entry.FlipX,
+                FlipY = entry.FlipY,
                 ResourceInfo = resourceInfo,
             });
         }
 
         if (options.ShowNodeMarkers)
         {
-            foreach (var node in nodes)
+            foreach (var entry in cache.NodeMarkerEntries)
             {
+                var node = entry.Node;
                 if (!ShouldRenderNode(node, options, visibleNodes))
                 {
                     continue;
                 }
 
-                if (imageCastByNode.ContainsKey(node.Index))
-                {
-                    continue;
-                }
-
-                var localRect = new Rect(-4, -4, 8, 8);
                 var transform = worldTransforms[node.Index];
                 items.Add(new RenderItem
                 {
                     NodeIndex = node.Index,
-                    NodeName = node.Name ?? $"node_{node.Index}",
-                    Group = node.Group,
+                    NodeName = entry.NodeName,
+                    Group = entry.Group,
                     Kind = "node",
                     WorldTransform = transform,
-                    LocalRect = localRect,
-                    WorldBounds = TransformRect(localRect, transform),
-                    PlaceholderColor = ColorFromText(node.Group),
+                    LocalRect = entry.LocalRect,
+                    WorldBounds = TransformRect(entry.LocalRect, transform),
+                    PlaceholderColor = entry.PlaceholderColor,
                     Opacity = 0.85,
                     FlipX = false,
                     FlipY = false,
@@ -395,6 +717,7 @@ internal static class SceneRenderBuilder
         {
             Items = items,
             ContentBounds = bounds,
+            Warnings = cache.Warnings,
         };
     }
 
@@ -471,35 +794,39 @@ internal static class SceneRenderBuilder
         return roots.Length > 0 ? roots : rows.Values.ToArray();
     }
 
-    private static IReadOnlyDictionary<int, Matrix> BuildWorldTransforms(
+    private static IReadOnlyList<Matrix> BuildWorldTransforms(
         IReadOnlyList<NodeInfo> nodes,
         IReadOnlyList<SbSceneNodeAnimationState> nodeStates,
-        IReadOnlyDictionary<int, int> parentByNode)
+        IReadOnlyList<int> parentIndexes)
     {
-        var memo = new Dictionary<int, Matrix>();
-        var visiting = new HashSet<int>();
+        var memo = new Matrix[nodes.Count];
+        var hasMemo = new bool[nodes.Count];
+        var visiting = new bool[nodes.Count];
 
         Matrix Resolve(int index)
         {
-            if (memo.TryGetValue(index, out var cached))
+            if (hasMemo[index])
             {
-                return cached;
+                return memo[index];
             }
 
-            if (!visiting.Add(index))
+            if (visiting[index])
             {
                 return BuildLocalTransform(nodeStates[index]);
             }
 
+            visiting[index] = true;
             var local = BuildLocalTransform(nodeStates[index]);
             var world = local;
-            if (parentByNode.TryGetValue(index, out var parentIndex) && parentIndex >= 0 && parentIndex < nodes.Count)
+            var parentIndex = index >= 0 && index < parentIndexes.Count ? parentIndexes[index] : -1;
+            if (parentIndex >= 0 && parentIndex < nodes.Count)
             {
                 world.Append(Resolve(parentIndex));
             }
 
-            visiting.Remove(index);
+            visiting[index] = false;
             memo[index] = world;
+            hasMemo[index] = true;
             return world;
         }
 
@@ -535,6 +862,12 @@ internal static class SceneRenderBuilder
         matrix.Rotate(SbSceneTransformConventions.ToScreenRotationDegrees(state.RotationDegrees));
         matrix.Translate(state.TranslationX, state.TranslationY);
         return matrix;
+    }
+
+    private static Rect CreateImageLocalRect(SbSceneImageCast imageCast, SbSceneImageCastAnimationState imageState)
+    {
+        var geometry = SbSceneImageCastConventions.ResolveAnimatedGeometry(imageCast, imageState.Width, imageState.Height);
+        return new Rect(-geometry.PivotX, -geometry.PivotY, geometry.Width, geometry.Height);
     }
 
     private static Rect ComputeBounds(IReadOnlyList<RenderItem> items)

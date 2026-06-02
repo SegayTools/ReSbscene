@@ -92,6 +92,45 @@ public sealed class VtbfParserTests
     }
 
     [Fact]
+    public void ParsesLinearVtc0ChildrenFromDeclaredChildCount()
+    {
+        var childPayload = CompactStringField(0x03, "scene");
+        var child = CombineTestBytes(
+            Encoding.ASCII.GetBytes("vtc0"),
+            Int32Test(8 + childPayload.Length),
+            Encoding.ASCII.GetBytes("SCN "),
+            UInt16Test(0),
+            UInt16Test(1),
+            childPayload);
+        var parentPayload = CompactStringField(0x03, "project");
+        var parent = CombineTestBytes(
+            Encoding.ASCII.GetBytes("vtc0"),
+            Int32Test(8 + parentPayload.Length),
+            Encoding.ASCII.GetBytes("PROJ"),
+            UInt16Test(1),
+            UInt16Test(1),
+            parentPayload,
+            child);
+        var bytes = CombineTestBytes(
+            Encoding.ASCII.GetBytes("VTBF"),
+            Int32Test(0x10),
+            Encoding.ASCII.GetBytes("SRFF"),
+            [0x01, 0x00, 0x00, 0x4C],
+            parent);
+
+        var document = new VtbfParser().Parse(bytes);
+        var project = document.Blocks.Single().Children.Single(static child => child.Tag == "PROJ");
+        var scene = Assert.Single(project.Children);
+
+        Assert.Equal(1, project.ChildCount);
+        Assert.Equal(1, project.ParamLow);
+        Assert.Equal(1, project.PropertyCount);
+        Assert.Equal(1, project.ParamHigh);
+        Assert.Equal("SCN ", scene.Tag);
+        Assert.Equal("scene", scene.Fields.Single().StringValue);
+    }
+
+    [Fact]
     public void ParsesCompactType03RawByteAndFollowingRecord()
     {
         var payload = CombineTestBytes(
@@ -175,7 +214,7 @@ public sealed class VtbfParserTests
             Encoding.ASCII.GetBytes("vtc0"),
             Int32Test(8 + payload.Length),
             Encoding.ASCII.GetBytes("CNUM"),
-            UInt16Test(1),
+            UInt16Test(0),
             UInt16Test(1),
             payload);
         var bytes = CombineTestBytes(
@@ -204,7 +243,7 @@ public sealed class VtbfParserTests
             Encoding.ASCII.GetBytes("vtc0"),
             Int32Test(8 + payload.Length),
             Encoding.ASCII.GetBytes("CNUM"),
-            UInt16Test(1),
+            UInt16Test(0),
             UInt16Test(1),
             payload);
         var bytes = CombineTestBytes(

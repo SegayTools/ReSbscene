@@ -223,10 +223,11 @@ static int Render(string[] args)
             case "--character-defaults":
                 characterDefaults = true;
                 break;
-            case "--animation" when i + 1 < args.Length:
+            case "--animation" or "--anim" when i + 1 < args.Length:
+                var animationOption = args[i];
                 if (!TryParseAnimationSelection(args[++i], out var selection))
                 {
-                    Console.Error.WriteLine("Invalid --animation value. Use Name, Name@Frame, or Name:Frame.");
+                    Console.Error.WriteLine($"Invalid {animationOption} value. Use Name, #Index, Name[Frame], #Index[Frame], Name@Frame, or Name:Frame.");
                     return 1;
                 }
 
@@ -5897,20 +5898,31 @@ static bool TryParseAnimationSelection(string text, out SbSceneAnimationSelectio
         return false;
     }
 
-    var separator = text.LastIndexOf('@');
+    var trimmed = text.Trim();
+    if (TryParseBracketedAnimationSelection(trimmed, out selection))
+    {
+        return true;
+    }
+
+    if (trimmed.Contains('[') || trimmed.Contains(']'))
+    {
+        return false;
+    }
+
+    var separator = trimmed.LastIndexOf('@');
     if (separator < 0)
     {
-        separator = text.LastIndexOf(':');
+        separator = trimmed.LastIndexOf(':');
     }
 
     if (separator < 0)
     {
-        selection = new SbSceneAnimationSelection(text.Trim(), 0);
+        selection = CreateAnimationSelection(trimmed, 0);
         return selection.Name.Length > 0;
     }
 
-    var name = text[..separator].Trim();
-    var frameText = text[(separator + 1)..].Trim();
+    var name = trimmed[..separator].Trim();
+    var frameText = trimmed[(separator + 1)..].Trim();
     if (name.Length == 0 || frameText.Length == 0)
     {
         return false;
@@ -5921,8 +5933,52 @@ static bool TryParseAnimationSelection(string text, out SbSceneAnimationSelectio
         return false;
     }
 
-    selection = new SbSceneAnimationSelection(name, frame);
+    selection = CreateAnimationSelection(name, frame);
     return true;
+}
+
+static bool TryParseBracketedAnimationSelection(string text, out SbSceneAnimationSelection selection)
+{
+    selection = new SbSceneAnimationSelection(string.Empty, 0);
+    if (!text.EndsWith(']'))
+    {
+        return false;
+    }
+
+    var openBracket = text.LastIndexOf('[');
+    if (openBracket < 0)
+    {
+        return false;
+    }
+
+    var name = text[..openBracket].Trim();
+    var frameText = text[(openBracket + 1)..^1].Trim();
+    if (name.Length == 0 || frameText.Length == 0)
+    {
+        return false;
+    }
+
+    if (!double.TryParse(frameText, NumberStyles.Float, CultureInfo.InvariantCulture, out var frame))
+    {
+        return false;
+    }
+
+    selection = CreateAnimationSelection(name, frame);
+    return true;
+}
+
+static SbSceneAnimationSelection CreateAnimationSelection(string target, double frame)
+{
+    var trimmed = target.Trim();
+    if (trimmed.Length > 1
+        && trimmed[0] == '#'
+        && int.TryParse(trimmed[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+        && index >= 0)
+    {
+        return new SbSceneAnimationSelection(trimmed, frame) { Index = index };
+    }
+
+    return new SbSceneAnimationSelection(trimmed, frame);
 }
 
 static bool TryParseTextureSampling(string text, out SbSceneTextureSampling textureSampling)
@@ -6009,7 +6065,7 @@ static void PrintUsage()
     Console.WriteLine("  SbScene.Cli dump <file> --json <out> [--markdown <out>]");
     Console.WriteLine("  SbScene.Cli dump <file> --markdown <out> [--json <out>]");
     Console.WriteLine("  SbScene.Cli extract-images <sbscene> <svo> --out <dir> [--no-atlas]");
-    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--animation <name[@frame]>] [--background <color>] [--scale <n>] [--supersample <n>] [--sampling <mode>] [--high-quality] [--padding <px>] [--show-hidden] [--render-secondary]");
+    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--anim <name[frame]|#index[frame]>] [--background <color>] [--scale <n>] [--supersample <n>] [--sampling <mode>] [--high-quality] [--padding <px>] [--show-hidden] [--render-secondary]");
 }
 
 static void PrintRenderUsage()
@@ -6020,7 +6076,8 @@ static void PrintRenderUsage()
     Console.WriteLine();
     Console.WriteLine("Options:");
     Console.WriteLine("  --character-defaults       Apply Change_Fashion, Change_Position, Change_Accessory, Action_Wait1, and Mouth_Wait1 at frame 0.");
-    Console.WriteLine("  --animation <name[@frame]> Apply an animation at a frame. Can be specified multiple times; later selections override earlier state.");
+    Console.WriteLine("  --anim <name[frame]>      Enable an animation slot at a frame. Alias: --animation. #index[frame] is also accepted.");
+    Console.WriteLine("                             Enabled slots are applied by animation index; duplicate slots use the last specified frame.");
     Console.WriteLine("  --background <color>      transparent, #RRGGBB, or #AARRGGBB.");
     Console.WriteLine("  --scale <n>               Output scale. Default: 1.");
     Console.WriteLine("  --sampling <mode>         Texture sampling: nearest or bilinear. Default: nearest.");
@@ -6028,7 +6085,7 @@ static void PrintRenderUsage()
     Console.WriteLine("  --high-quality            Shortcut for --sampling bilinear --supersample 4.");
     Console.WriteLine("  --padding <px>            Transparent padding around content. Default: 80.");
     Console.WriteLine("  --show-hidden             Render nodes even if display state is false.");
-    Console.WriteLine("  --render-secondary        Also render secondary CIMG references.");
+    Console.WriteLine("  --render-secondary        Deprecated; secondary CIMG references are rendered only when the CIMG surface mode uses them.");
 }
 
 internal sealed class SurveyResult

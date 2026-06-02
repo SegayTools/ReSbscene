@@ -16,6 +16,8 @@ public sealed class SbSceneAnimationFrameBuilderTests
                 castIndex: 0,
                 Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 20)),
                 Track(trackType: 11, flags: 0x33, Key(0, 1), Key(10, 0)),
+                Track(trackType: 12, flags: 0x13, Key(0, 16), Key(10, 32)),
+                Track(trackType: 13, flags: 0x13, Key(0, 16), Key(10, 8)),
                 Track(trackType: 18, flags: 0x23, Key(0, 0), Key(10, 2)),
                 Track(trackType: 24, flags: 0x13, Key(0, 1), Key(10, 0.5))));
         var scene = Scene(animation);
@@ -27,6 +29,8 @@ public sealed class SbSceneAnimationFrameBuilderTests
         Assert.Equal(20, state.Nodes[0].TranslationX, precision: 6);
         Assert.False(state.Nodes[0].Display);
         Assert.Equal(128, state.Nodes[0].MaterialA);
+        Assert.Equal(32, state.ImageCasts[0].Width, precision: 6);
+        Assert.Equal(8, state.ImageCasts[0].Height, precision: 6);
         Assert.Equal(2, state.ImageCasts[0].PrimaryReferenceIndex);
     }
 
@@ -42,9 +46,113 @@ public sealed class SbSceneAnimationFrameBuilderTests
         Assert.Equal(30, state.Nodes[0].TranslationX, precision: 6);
     }
 
+    [Fact]
+    public void BuildAppliesMultipleAnimationsInSlotIndexOrder()
+    {
+        var fashion = Animation(
+            "Change_Fashion",
+            Motion(
+                castIndex: 0,
+                Track(trackType: 0, flags: 0x13, Key(0, 0), Key(2, 8)),
+                Track(trackType: 1, flags: 0x13, Key(0, 0), Key(2, 6))));
+        var action = Animation(
+            "Action_Joy3",
+            Motion(castIndex: 0, Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 20))));
+        var scene = Scene(fashion, action);
+
+        var state = SbSceneAnimationFrameBuilder.Build(
+            scene,
+            [
+                new SbSceneAnimationSelection("Action_Joy3", 10),
+                new SbSceneAnimationSelection("Change_Fashion", 2),
+            ]);
+
+        Assert.Equal(20, state.Nodes[0].TranslationX, precision: 6);
+        Assert.Equal(6, state.Nodes[0].TranslationY, precision: 6);
+    }
+
+    [Fact]
+    public void BuildUsesLastSelectionForSameAnimationSlot()
+    {
+        var animation = Animation(
+            "Action",
+            Motion(castIndex: 0, Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 20))));
+        var scene = Scene(animation);
+
+        var state = SbSceneAnimationFrameBuilder.Build(
+            scene,
+            [
+                new SbSceneAnimationSelection("Action", 0),
+                new SbSceneAnimationSelection("Action", 10),
+            ]);
+
+        Assert.Equal(20, state.Nodes[0].TranslationX, precision: 6);
+    }
+
+    [Fact]
+    public void BuildCanApplyAnimationSelectionBySlotIndex()
+    {
+        var first = Animation("Duplicate", Motion(castIndex: 0, Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 10))));
+        var second = Animation("Duplicate", Motion(castIndex: 0, Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 30))));
+        var scene = Scene(first, second);
+
+        var state = SbSceneAnimationFrameBuilder.Build(
+            scene,
+            [new SbSceneAnimationSelection("#1", 10) { Index = 1 }]);
+
+        Assert.Equal(30, state.Nodes[0].TranslationX, precision: 6);
+    }
+
+    [Fact]
+    public void BuildAppliesVertexColorTracks()
+    {
+        var animation = Animation(
+            "Vertex",
+            Motion(
+                castIndex: 0,
+                Track(trackType: 29, flags: 0x13, Key(0, 1), Key(10, 0.25)),
+                Track(trackType: 30, flags: 0x13, Key(0, 1), Key(10, 0.5)),
+                Track(trackType: 31, flags: 0x13, Key(0, 1), Key(10, 0.75)),
+                Track(trackType: 32, flags: 0x13, Key(0, 1), Key(10, 0.125))));
+        var scene = Scene(animation);
+
+        var state = SbSceneAnimationFrameBuilder.Build(scene, animation, 10);
+
+        Assert.Equal(new RgbaColor(64, 128, 191, 32), state.Nodes[0].VertexColors[0]);
+        Assert.Equal(SbSceneColorConventions.OpaqueWhite, state.Nodes[0].VertexColors[1]);
+    }
+
+    [Fact]
+    public void BuildInitialReturnsCleanCloneAfterAnimationStateWasMutated()
+    {
+        var animation = Animation("Action", Motion(castIndex: 0, Track(trackType: 0, flags: 0x13, Key(0, 0), Key(10, 20))));
+        var scene = Scene(animation);
+        var animated = SbSceneAnimationFrameBuilder.Build(scene, animation, 10);
+
+        var initial = SbSceneAnimationFrameBuilder.BuildInitial(scene);
+
+        Assert.Equal(20, animated.Nodes[0].TranslationX, precision: 6);
+        Assert.Equal(0, initial.Nodes[0].TranslationX, precision: 6);
+    }
+
+    [Fact]
+    public void BuildInitialUsesOpaqueBlackIlluminationWhenFieldIsMissing()
+    {
+        var scene = SceneWithNodes([Node(0, includeIllumination: false)]);
+
+        var state = SbSceneAnimationFrameBuilder.BuildInitial(scene);
+
+        Assert.Equal(SbSceneColorConventions.OpaqueBlack, state.Nodes[0].IlluminationColor);
+    }
+
     private static SbSceneFile Scene(params AnimationInfo[] animations)
     {
         var nodes = new[] { Node(0) };
+        return SceneWithNodes(nodes, animations);
+    }
+
+    private static SbSceneFile SceneWithNodes(IReadOnlyList<NodeInfo> nodes, params AnimationInfo[] animations)
+    {
         return new SbSceneFile
         {
             SourcePath = "test.sbscene",
@@ -84,7 +192,7 @@ public sealed class SbSceneAnimationFrameBuilderTests
             {
                 RootBlockCount = 0,
                 TotalBlockCount = 0,
-                NodeCount = nodes.Length,
+                NodeCount = nodes.Count,
                 AnimationCount = animations.Length,
                 VariantHintCount = 0,
                 BlockCounts = new Dictionary<string, int>(),
@@ -93,7 +201,7 @@ public sealed class SbSceneAnimationFrameBuilderTests
         };
     }
 
-    private static NodeInfo Node(int index)
+    private static NodeInfo Node(int index, bool includeIllumination = true)
     {
         return new NodeInfo
         {
@@ -120,7 +228,7 @@ public sealed class SbSceneAnimationFrameBuilderTests
                 Scale = new Vector2Value { X = 1, Y = 1 },
                 Display = true,
                 MaterialColor = new ColorArgbValue { A = 255, R = 255, G = 255, B = 255 },
-                IlluminationColor = new ColorArgbValue { A = 0, R = 0, G = 0, B = 0 },
+                IlluminationColor = includeIllumination ? new ColorArgbValue { A = 0, R = 0, G = 0, B = 0 } : null,
                 VertexColors = [],
                 MultiPosFlags = null,
                 MultiSizeFlags = null,

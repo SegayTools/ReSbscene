@@ -41,6 +41,23 @@ public sealed class SbSceneColorConventionsTests
     }
 
     [Fact]
+    public void ApplyLightingDoesNotMultiplyIlluminationByVertexTint()
+    {
+        var lit = SbSceneColorConventions.ApplyLighting(
+            textureR: 0,
+            textureG: 0,
+            textureB: 0,
+            textureA: 255,
+            material: new RgbaColor(255, 255, 255, 255),
+            illumination: new RgbaColor(200, 100, 50, 128),
+            vertex: new RgbaColor(0, 0, 0, 255));
+
+        Assert.Equal(200 * (128 / 255.0), lit.R, precision: 6);
+        Assert.Equal(100 * (128 / 255.0), lit.G, precision: 6);
+        Assert.Equal(50 * (128 / 255.0), lit.B, precision: 6);
+    }
+
+    [Fact]
     public void InterpolateVertexColorUsesQuadCornerOrder()
     {
         var colors = new[]
@@ -52,8 +69,8 @@ public sealed class SbSceneColorConventionsTests
         };
 
         Assert.Equal(colors[0], SbSceneColorConventions.InterpolateVertexColor(colors, 0, 0));
-        Assert.Equal(colors[1], SbSceneColorConventions.InterpolateVertexColor(colors, 1, 0));
-        Assert.Equal(colors[2], SbSceneColorConventions.InterpolateVertexColor(colors, 1, 1));
-        Assert.Equal(colors[3], SbSceneColorConventions.InterpolateVertexColor(colors, 0, 1));
+        Assert.Equal(colors[1], SbSceneColorConventions.InterpolateVertexColor(colors, 0, 1));
+        Assert.Equal(colors[2], SbSceneColorConventions.InterpolateVertexColor(colors, 1, 0));
+        Assert.Equal(colors[3], SbSceneColorConventions.InterpolateVertexColor(colors, 1, 1));
     }
 }

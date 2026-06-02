@@ -21,16 +21,30 @@ internal sealed class SceneRenderSurface : FrameworkElement
     private RenderScene? _scene;
     private HashSet<int> _highlightedNodeIndexes = [];
     private int? _primaryHighlightedNodeIndex;
+    private Rect? _viewportBounds;
     private double _zoom = 1;
+    private bool _centerContentHorizontally;
+    private bool _showGrid = true;
+    private bool _showAxes = true;
+    private bool _showSelectionBounds = false;
 
     public RenderScene? Scene
     {
         get => _scene;
         set
         {
-            var oldSize = _scene?.SurfaceSize;
+            var oldSize = SurfaceSize;
             _scene = value;
-            var newSize = _scene?.SurfaceSize;
+            if (_scene is null)
+            {
+                _viewportBounds = null;
+            }
+            else
+            {
+                _viewportBounds ??= _scene.ContentBounds;
+            }
+
+            var newSize = SurfaceSize;
             if (!AreClose(oldSize, newSize))
             {
                 InvalidateMeasure();
@@ -39,6 +53,10 @@ internal sealed class SceneRenderSurface : FrameworkElement
             InvalidateVisual();
         }
     }
+
+    public Size SurfaceSize => _scene is null
+        ? new Size(960, 640)
+        : CreateSurfaceSize(GetViewportBounds(_scene));
 
     public int? HighlightedNodeIndex
     {
@@ -71,6 +89,66 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    public bool ShowSelectionBounds
+    {
+        get => _showSelectionBounds;
+        set
+        {
+            if (_showSelectionBounds == value)
+            {
+                return;
+            }
+
+            _showSelectionBounds = value;
+            InvalidateVisual();
+        }
+    }
+
+    public bool CenterContentHorizontally
+    {
+        get => _centerContentHorizontally;
+        set
+        {
+            if (_centerContentHorizontally == value)
+            {
+                return;
+            }
+
+            _centerContentHorizontally = value;
+            InvalidateVisual();
+        }
+    }
+
+    public bool ShowGrid
+    {
+        get => _showGrid;
+        set
+        {
+            if (_showGrid == value)
+            {
+                return;
+            }
+
+            _showGrid = value;
+            InvalidateVisual();
+        }
+    }
+
+    public bool ShowAxes
+    {
+        get => _showAxes;
+        set
+        {
+            if (_showAxes == value)
+            {
+                return;
+            }
+
+            _showAxes = value;
+            InvalidateVisual();
+        }
+    }
+
     public double Zoom
     {
         get => _zoom;
@@ -80,6 +158,23 @@ internal sealed class SceneRenderSurface : FrameworkElement
             InvalidateMeasure();
             InvalidateVisual();
         }
+    }
+
+    public void ClearViewportBounds()
+    {
+        _viewportBounds = null;
+    }
+
+    public void CaptureCurrentContentBounds()
+    {
+        var oldSize = SurfaceSize;
+        _viewportBounds = _scene?.ContentBounds;
+        if (!AreClose(oldSize, SurfaceSize))
+        {
+            InvalidateMeasure();
+        }
+
+        InvalidateVisual();
     }
 
     public int? HitTestNode(Point surfacePoint)
@@ -110,7 +205,7 @@ internal sealed class SceneRenderSurface : FrameworkElement
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        var size = Scene?.SurfaceSize ?? new Size(960, 640);
+        var size = SurfaceSize;
         return new Size(size.Width * Zoom, size.Height * Zoom);
     }
 
@@ -121,15 +216,24 @@ internal sealed class SceneRenderSurface : FrameworkElement
 
     protected override void OnRender(DrawingContext drawingContext)
     {
-        var baseSize = Scene?.SurfaceSize ?? new Size(Math.Max(ActualWidth / Zoom, 960), Math.Max(ActualHeight / Zoom, 640));
+        var baseSize = Scene is null
+            ? new Size(Math.Max(ActualWidth / Zoom, 960), Math.Max(ActualHeight / Zoom, 640))
+            : GetRenderBaseSize();
         drawingContext.DrawRectangle(SurfaceBrush, null, new Rect(RenderSize));
         drawingContext.PushTransform(new ScaleTransform(Zoom, Zoom));
-        DrawGrid(drawingContext, baseSize);
+        if (_showGrid)
+        {
+            DrawGrid(drawingContext, baseSize);
+        }
 
         if (Scene is not null)
         {
-            drawingContext.PushTransform(CreateSceneOffset(Scene));
-            DrawAxes(drawingContext);
+            drawingContext.PushTransform(CreateSceneOffset(GetViewportBounds(Scene), GetHorizontalContentInset()));
+            if (_showAxes)
+            {
+                DrawAxes(drawingContext);
+            }
+
             foreach (var item in Scene.Items)
             {
                 DrawItem(drawingContext, item);
@@ -207,7 +311,7 @@ internal sealed class SceneRenderSurface : FrameworkElement
 
     private void DrawSelectionBounds(DrawingContext drawingContext, RenderScene scene)
     {
-        if (_highlightedNodeIndexes.Count == 0)
+        if (!_showSelectionBounds || _highlightedNodeIndexes.Count == 0)
         {
             return;
         }
@@ -264,24 +368,57 @@ internal sealed class SceneRenderSurface : FrameworkElement
         drawingContext.DrawText(formatted, new Point(item.LocalRect.Left + 4, item.LocalRect.Top + 4));
     }
 
-    private static TranslateTransform CreateSceneOffset(RenderScene scene)
+    private static Size CreateSurfaceSize(Rect viewportBounds)
     {
-        return new TranslateTransform(ScenePadding - scene.ContentBounds.Left, ScenePadding - scene.ContentBounds.Top);
+        return new Size(
+            Math.Max(320, viewportBounds.Width + ScenePadding * 2),
+            Math.Max(240, viewportBounds.Height + ScenePadding * 2));
+    }
+
+    private static TranslateTransform CreateSceneOffset(Rect viewportBounds, double horizontalInset)
+    {
+        return new TranslateTransform(horizontalInset + ScenePadding - viewportBounds.Left, ScenePadding - viewportBounds.Top);
+    }
+
+    private Rect GetViewportBounds(RenderScene scene)
+    {
+        return _viewportBounds ?? scene.ContentBounds;
+    }
+
+    private Size GetRenderBaseSize()
+    {
+        var contentSize = SurfaceSize;
+        if (!_centerContentHorizontally || Zoom <= 0)
+        {
+            return contentSize;
+        }
+
+        return new Size(Math.Max(contentSize.Width, RenderSize.Width / Zoom), contentSize.Height);
+    }
+
+    private double GetHorizontalContentInset()
+    {
+        if (!_centerContentHorizontally || _scene is null || Zoom <= 0)
+        {
+            return 0;
+        }
+
+        return Math.Max(0, (RenderSize.Width / Zoom - SurfaceSize.Width) / 2.0);
     }
 
     private Point SurfaceToWorld(Point surfacePoint, RenderScene scene)
     {
         var basePoint = new Point(surfacePoint.X / Zoom, surfacePoint.Y / Zoom);
+        var viewportBounds = GetViewportBounds(scene);
+        var horizontalInset = GetHorizontalContentInset();
         return new Point(
-            basePoint.X - (ScenePadding - scene.ContentBounds.Left),
-            basePoint.Y - (ScenePadding - scene.ContentBounds.Top));
+            basePoint.X - (horizontalInset + ScenePadding - viewportBounds.Left),
+            basePoint.Y - (ScenePadding - viewportBounds.Top));
     }
 
-    private static bool AreClose(Size? left, Size? right)
+    private static bool AreClose(Size left, Size right)
     {
-        return left is Size leftSize
-            && right is Size rightSize
-            && Math.Abs(leftSize.Width - rightSize.Width) < 0.01
-            && Math.Abs(leftSize.Height - rightSize.Height) < 0.01;
+        return Math.Abs(left.Width - right.Width) < 0.01
+            && Math.Abs(left.Height - right.Height) < 0.01;
     }
 }

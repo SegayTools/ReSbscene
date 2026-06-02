@@ -419,8 +419,8 @@ public static class InspectFormatter
         }
 
         builder.AppendLine();
-        builder.AppendLine("Alpha/Opacity track evidence:");
-        builder.AppendLine("  type 24 is compared with target material alpha, display, and CIMG binding; materialAlphaMatches uses <=0.01 tolerance.");
+        builder.AppendLine("Material alpha track evidence:");
+        builder.AppendLine("  type 24 writes MaterialColor.A and contributes to effective opacity; materialAlphaMatches uses <=0.01 tolerance.");
         builder.AppendLine($"  total: tracks={rows.Count}, keys={rows.Sum(static row => row.KeyCount)}, cimgTargets={rows.Count(static row => row.HasImageCast)}, displayFalseTargets={rows.Count(static row => row.InitialDisplay == false)}, materialAlphaMatches={rows.Count(static row => row.InitialAlphaMatched)}/{rows.Count(static row => row.InitialMaterialAlpha is not null)}");
         foreach (var group in rows
             .GroupBy(static row => row.AnimationName, StringComparer.Ordinal)

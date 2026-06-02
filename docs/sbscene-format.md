@@ -15,25 +15,25 @@
 | RootLength | 4 | Confirmed | surfboard/surfboard_EN full survey 中 314/314 与 318/318 个样本均为 `0x10`。老的合成测试格式可省略该根头。 |
 | RootTag | 4 | Confirmed | surfboard/surfboard_EN full survey 中 314/314 与 318/318 个样本均为 `SRFF`。 |
 | RootParam | 4 | Unknown | full survey 中 314/314 与 318/318 个样本均为 raw `0x0100004C`，拆分为 `ParamLow=1 / ParamHigh=19456`；用途未确认。 |
-| Blocks | variable | Confirmed | 从 `RootLength` 指向的位置开始，是线性 `vtc0` chunk 流。 |
+| Blocks | variable | Confirmed | 从 `RootLength` 指向的位置开始，是 `vtc0` 预序 chunk 树；每个块声明自己的 child count 与 field count，children 紧随本块字段 payload 之后。 |
 
 ## vtc0 块
 
-当前真实样本均按线性 `vtc0` chunk 流解析，不是父块长度包住子块的树形结构。块之间靠文件顺序串联，语义层再按 `ANIM -> MOT -> TRK -> KEY` 等顺序恢复逻辑关系。
+当前真实样本按 `vtc0` 预序 chunk 树解析。块长度只覆盖 `Tag + childCount/fieldCount + 本块字段 payload`，不包住子块；解析器先读取本块字段，再按 `childCount` 递归读取紧随其后的 children。旧报告中的 `ParamLow/ParamHigh` 现在仅作为兼容别名保留，真实含义分别是 `ChildCount/FieldCount`。
 
 | 字段 | 大小 | 状态 | 说明 |
 | --- | ---: | --- | --- |
 | Marker | 4 | Confirmed | ASCII `vtc0`。 |
 | Length | 4 | Confirmed | little endian `int32`，表示 marker+length 之后的块内容长度。 |
 | Tag | 4 | Confirmed | 4 字节 ASCII 块名，例如 `SRFF`、`NODE`、`ANIM`、`MOT `。 |
-| ParamRawHex | 4 | Confirmed | 原始参数字节顺序；JSON/Markdown 均保留，避免字节序解释覆盖原始证据。full survey 根块均为 `0x0100004C`。 |
-| ParamLow | 2 | Confirmed(raw split) | little endian 拆出的低 16 位块参数。常见为记录数、motion 数或 texture 数；具体语义仍按 tag 分开确认。 |
-| ParamHigh | 2 | Confirmed(raw split) | little endian 拆出的高 16 位块参数。多数普通块中等于字段数量，记录块中常是记录字段/条目计数；具体语义仍按 tag 分开确认。 |
+| ParamRawHex | 4 | Confirmed | 原始 `childCount/fieldCount` 字节顺序；JSON/Markdown 均保留，避免字节序解释覆盖原始证据。full survey 根块均为 `0x0100004C`。 |
+| ChildCount / legacy ParamLow | 2 | Confirmed | little endian `uint16`，声明紧随本块字段之后的 child block 数量。语义层中常对应 motion 数、texture 数或 resource group 数。 |
+| FieldCount / legacy ParamHigh | 2 | Confirmed | little endian `uint16`，声明本块 compact fields/record fields 数量；记录块中常是记录字段/条目计数。 |
 | Fields/Records | `Length - 8` | Confirmed | 紧凑字段或记录数组。 |
 
-解析器仍保留旧的嵌套 `vtc0 + propertyCount + childCount` 合成测试格式，以便做异常测试；真实样本走线性 chunk 解析路径。
+解析器仍保留旧的 `vtc0 + propertyCount + childCount` 合成测试格式，以便做异常测试；真实样本走 `childCount/fieldCount` 预序解析路径。
 
-关键块的 `ParamLow/ParamHigh` 观察：
+关键块的 `ChildCount/FieldCount` 观察（输出中的 legacy `ParamLow/ParamHigh` 与其同值）：
 
 | 块 | ParamLow | ParamHigh |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ survey aggregate 现在直接输出 `VtbfTagCounts`、`VtbfTagParamRawCounts`、
 | TypeCode | 1 | Confirmed | 字段类型。 |
 | Payload | variable | Confirmed | 长度由 type code 和部分 field id 决定。 |
 
-`TypeCode = 0x02` 的字符串字段使用 1 字节长度。Ras 中存在非 ASCII 长注释 raw bytes，符合 Shift-JIS byte-shape candidate，并使用 `0x80 <length>` 扩展长度前缀。解析器保留 `Raw` 原始字节；当前 `StringValue` 是宽松 UTF-8 显示值，不作为最终文本编码事实。
+`TypeCode = 0x02` 的字符串字段使用 1 字节长度。Ras 中存在非 ASCII 长注释 raw bytes，并使用 `0x80 <length>` 扩展长度前缀。对抗校验后按参考实现收紧为 CP932/Shift-JIS 解码：解析器仍保留 `Raw` 原始字节，`StringValue` 使用 CP932 截断到首个 NUL 后的文本；`TEXT.0x7A` 报告继续同时输出 raw hex 以便排查编码边界。
 
 主 Markdown 报告会输出单文件“字段目录”，按 `tag + field id + type` 汇总出现次数、所属块数、count/stride 分布和值样例。survey aggregate 另输出 full-survey 字段目录；JP/EN 当前均为 158 类字段目录项，且字段目录 key 集合完全一致。flags 类字段样例按 hex 输出，便于和 bit 表交叉核对。
 
@@ -78,7 +78,7 @@ survey aggregate 现在直接输出 `VtbfTagCounts`、`VtbfTagParamRawCounts`、
 | --- | --- | --- |
 | `0x00` | ZeroLengthMarker | 0 字节 payload；full survey 中见于 `CNUM.0x02/0x0A/0x0C/0x0D` 与 `TEXT.0x00`，后面可接普通 compact 字段。只确认字段边界，不命名运行时语义。 |
 | `0x01` | Byte/Bool | 1 字节。动画 key 中常见布尔值。 |
-| `0x02` | String | 长度前缀字符串；节点名/动画名多为 ASCII。长注释存在 Shift-JIS byte-shape 候选；`TEXT.0x7A` 在当前 full survey 中 raw content 可严格按 CP932/Shift-JIS 解码。正式证据以 raw bytes 为准。 |
+| `0x02` | String | 长度前缀字符串；节点名/动画名多为 ASCII。对抗校验后解析显示按 CP932/Shift-JIS 解码并在 NUL 处截断；`TEXT.0x7A` 在当前 full survey 中 raw content 可严格按 CP932/Shift-JIS 解码。报告仍保留 raw bytes 作为低层证据。 |
 | `0x03` | RawByte03 | 1 字节 raw 值；当前已见于 `CNUM.0x00A7/0x00A9..0x00AC`、`NCAT.0x0F` 等字段。`NCAT.0x0F` 的 RawByte03 当前只见 `0/1`，`239/244/248` 等高值来自 CNUM raw byte 字段。语义未命名。注意这与 field id `0x03` 字符串字段不是同一概念。 |
 | `0x04` | RawByte | 1 字节 raw 值；当前见于 `NCAT.0x0D`、`CATR.0x0D`、`CNUM.0xA6/0xA8/0xAD`、`CSLI.0x81/0x82/0x84/0x85` 等字段。`CATR.0x0D` 在 full survey 中为 `9/5/7`，语义未命名。 |
 | `0x05` | Int16 | little endian `int16`。 |
@@ -197,9 +197,9 @@ record shape profile 显示 JP/EN 的 217 条 `CNUM` 只有 4 种字段顺序，
 
 record shape profile 显示 JP/EN 的 26 个 `CSLI` 字段顺序完全一致：`0x80,0x51,0x40,0x41,0x42,0x43,0x44,0x81,0x82,0x84,0x85,0x86,0x87`。只读模型、Markdown 和 inspect 输出现在逐记录暴露 `0x40..0x43` 与 `0x80..0x87` 的机械解码值。字段集合与顺序只作为结构事实；`0x80..0x87` 的运行时语义仍 unknown。
 
-`TEXT` 是 `DATA` 区间附近的伴随块，不计入 `DATA.ParamLow`。full survey 中 JP/EN 为 105/131 条 `TEXT`，`TEXT.0x7A` 字符串字段 present 为 105/131，zero-length marker field id 均为 `0x00`。`TEXT.0x79` 在 JP/EN 均为 `-1`，`TEXT.0x7C` 分布为 JP `-1:7, 0:94, 1:4`、EN `-1:7, 0:120, 1:4`；`0x78|0x79` top 分布为 JP `23|-1:44, 2|-1:17, 3|-1:15`，EN `23|-1:70, 2|-1:17, 3|-1:15`。raw string survey 显示 `TEXT.0x7A` 中 JP 为 strict UTF-8 invalid 97 / valid 8，EN 为 invalid 123 / valid 8；所有 invalid UTF-8 项都符合 Shift-JIS byte-shape with non-ASCII。严格 CP932/Shift-JIS 解码统计为 JP `validShiftJis=105/105`、EN `validShiftJis=131/131`，并新增 `TextField7AShiftJisStringCounts` 输出可读 decoded value 分布，例如 `ADVANCEDをプレイする人にオススメです。`、`ネットワークに接続されていません ...`、`楽曲タイトル１６文字...` 等样本字符串。解析模型和 JSON/Markdown/inspect 输出现在逐记录保留 `field7ARawHex` 与 `field7AShiftJis`，它们与宽松 UTF-8 显示用的 `field7A` 分开。`TEXT.0x33` 以 `field33Vector` 和 `field33RawHex` 暴露，且 full survey 现已汇总其 vector/raw-hex 分布；`TEXT.0x7B` 以 `field7BPackedValues` 和 `field7BRawHex` 暴露，且 full survey 现已汇总其 packed-values/raw-hex 分布。这里的 Shift-JIS string、vector 和 packed values 都是只读机械解码证据，不命名业务语义。当前只确认字段边界、raw bytes、严格 UTF-8 校验结果和 raw content 可严格按 CP932/Shift-JIS 解码；最终文本编码、布局和运行时渲染语义未确认。
+`TEXT` 是 `DATA` 区间附近的伴随块，不计入 `DATA.ParamLow`。full survey 中 JP/EN 为 105/131 条 `TEXT`，`TEXT.0x7A` 字符串字段 present 为 105/131，zero-length marker field id 均为 `0x00`。`TEXT.0x79` 在 JP/EN 均为 `-1`，`TEXT.0x7C` 分布为 JP `-1:7, 0:94, 1:4`、EN `-1:7, 0:120, 1:4`；`0x78|0x79` top 分布为 JP `23|-1:44, 2|-1:17, 3|-1:15`，EN `23|-1:70, 2|-1:17, 3|-1:15`。raw string survey 显示 `TEXT.0x7A` 中 JP 为 strict UTF-8 invalid 97 / valid 8，EN 为 invalid 123 / valid 8；所有 invalid UTF-8 项都符合 Shift-JIS byte-shape with non-ASCII。严格 CP932/Shift-JIS 解码统计为 JP `validShiftJis=105/105`、EN `validShiftJis=131/131`，并新增 `TextField7AShiftJisStringCounts` 输出可读 decoded value 分布，例如 `ADVANCEDをプレイする人にオススメです。`、`ネットワークに接続されていません ...`、`楽曲タイトル１６文字...` 等样本字符串。解析模型和 JSON/Markdown/inspect 输出现在逐记录保留 `field7ARawHex` 与 `field7AShiftJis`。`TEXT.0x33` 以 `field33Vector` 和 `field33RawHex` 暴露，且 full survey 现已汇总其 vector/raw-hex 分布；`TEXT.0x7B` 以 `field7BPackedValues` 和 `field7BRawHex` 暴露，且 full survey 现已汇总其 packed-values/raw-hex 分布。这里的 Shift-JIS string、vector 和 packed values 都是只读机械解码证据，不命名业务语义。当前确认字段边界、raw bytes、严格 UTF-8 校验结果和 CP932/Shift-JIS 解析规则；布局、换行和运行时渲染语义未确认。
 
-record shape profile 显示 `TEXT` 在 JP 105/105、EN 131/131 上只有一种字段顺序：`0x78,0x79,0x7A,0x33,0x7B,0x00(zero marker),0x7C,0x41`。`0x33` 为 `type=0x4A` VectorFloat32，`0x7B` 为 `type=0x45` packed record，已在只读模型中暴露 raw hex 和解码值。这只确认记录布局和原始值，不确认文本编码、换行、对齐或渲染行为。
+record shape profile 显示 `TEXT` 在 JP 105/105、EN 131/131 上只有一种字段顺序：`0x78,0x79,0x7A,0x33,0x7B,0x00(zero marker),0x7C,0x41`。`0x33` 为 `type=0x4A` VectorFloat32，`0x7B` 为 `type=0x45` packed record，已在只读模型中暴露 raw hex 和解码值。这只确认记录布局、原始值和 CP932/Shift-JIS 文本解码，不确认换行、对齐或渲染行为。
 
 `CNUM.0xA1` 的 raw string survey 显示 JP/EN 217/217 均为 strict UTF-8 valid 和 ASCII-only，raw/content length 分布为 `2:65, 1:52, 3:38, 4:27, 6:15, 5:11, 7:9`。解析模型和 JSON/Markdown/inspect 输出现在逐记录保留 `fieldA1RawHex`，它与宽松显示用的 `fieldA1` 分开；同一层输出也保留 `field39RawHexValues`、`fieldAERawHex`、`fieldAFRawHex` 等不透明 payload 证据。这只确认 raw 字节形态与低层解码结果，不把字段命名为数字控件、格式字符串、布局参数或计数值。
 
@@ -226,7 +226,7 @@ record shape profile 显示 `TEXT` 在 JP 105/105、EN 131/131 上只有一种�
 | `TRS2` | `0x31` / `0x32` / `0x33` / `0x3A` | Confirmed(raw)/Candidate transform semantics | transform/display raw 字段已解码；translation / rotation / scale / display 为当前模型命名，`0x32` 的 signed fixed-angle 换算仍按候选处理。 |
 | `TRS2` | `0x37` / `0x38` / `0x39` | Confirmed(raw)/Candidate semantics | 字段边界和值已解析；material color / illumination color / vertex colors 与通道顺序 `A,R,G,B` 仍是候选解释，输出 `Hex=#AARRGGBB` 仅为候选显示格式。 |
 | `TRS2` | `0x3D` / `0x3E` | Confirmed(raw) | multi position / multi size raw flags。 |
-| `CIMG` | `0x48` / `0x51` / `0x40` / `0x41` / `0x42` / `0x43` | Confirmed(raw)/Unknown semantics | raw packed state / cast index / width / height / pivot 字段已解码。已核对 decoder/xref：`0x48` 不是 CIMG 私有 flags，而是与 `CSLI.0x80`、`CNUM.0x48`、`TEX.0x62`、`SLIC.0x83` 等共享部分 decoder 的 packed state word；full survey 中 CIMG 观察到 bit `0/1/4/5/6/7/8/9/11/12/13/15/20/21/22/23`，具体业务语义仍未命名。 |
+| `CIMG` | `0x48` / `0x51` / `0x40` / `0x41` / `0x42` / `0x43` | Confirmed(raw)/Runtime draw fields | raw packed state / cast index / width / height / pivot 字段已解码。`0x48` 是 shared packed state word；对 CIMG draw 路径，低 4 位是 draw/blend mode（`1` additive/effect），`0x10/0x20` 是 flipU/flipV，`0xC0` 是 UV permutation，`0x7800` 是 surface mode。其它高位和非 CIMG owner 仍不命名业务语义。 |
 | `CIMG` | `0x44` / `0x45` | Confirmed(raw/default fallback) | `0x44` 是 primary/secondary 两组 CREF 记录数；full survey 中 7063/7063 与 7228/7228 个 image cast 与后续 CREF 组完全匹配。`0x45` 为两个组内 crop reference index，且已核对的范围检查逻辑按 `0x44` 两组 count 对其做范围校验。运行时会用它作为静态 fallback/default slot index；`ImageVariantGroupCimg45FirstKey*` 显示它与 type 18/19 最早 key 经常一致但不是全覆盖，因此不能命名为动画当前或选中引用。 |
 | `CREF` | `0x49` | Confirmed(raw) | crop 引用 compact record；现已按 CIMG/CNUM/CSLI 全 owner 聚合。已核对 loader/xref：field id `0x49` 连续读取 3 个 int16，保存为 `(textureListIndex, textureIndex, cropIndex)`。full survey 中布局 selector 首字节均为 `1`，合计 19,597 与 19,734 条；owner 分布为 JP `CIMG=17069, CNUM=2422, CSLI=106`，EN `CIMG=17206, CNUM=2422, CSLI=106`。selector 不是业务枚举。 |
 | `CNUM` | `0x39` / `0x40` / `0x42` / `0x43` / `0x44` / `0x48` / `0x51` / `0xA0..0xAF` | Confirmed(raw)/Unknown semantics | `0x44` 与后续 `CREF` 记录数匹配，full survey 为 217/217；`0x48=32768` 为 217/217，在已核对装载路径中进入 shared packed state decoder；`0x51` 在 217/217 个 CNUM 中落在 NODE index 范围内。record shape 只有 4 种，差异仅为 zero marker id。只读模型已逐记录暴露 float、Color32 raw/display、raw byte/int、`0xAE` vector values 和 `0xAF` packed values；这些仍是 raw/机械解码字段。`0xA1` 为字符串 raw 值，运行时语义未确认。 |
@@ -234,7 +234,7 @@ record shape profile 显示 `TEXT` 在 JP 105/105、EN 131/131 上只有一种�
 | `CSLI` | `0x44` / `0x51` | Confirmed(raw)/Unknown semantics | `0x44` 与后续 `CREF` 记录数匹配，full survey 为 26/26；`0x51` 在 26/26 个 CSLI 中落在 NODE index 范围内，JP/EN full survey 中 target node 均为 `NODE.0x30=0xF02/display=true/non-CIMG target`。运行时 slice 语义未确认。 |
 | `CSLI` | `0x40..0x43` / `0x80..0x87` | Confirmed(raw)/Unknown semantics | JP/EN 的 26 个 `CSLI` 字段顺序完全一致，已按字段类型解码并在只读模型、Markdown 和 inspect 中输出 raw 数值。`0x80` 进入 shared packed state decoder；`0x81..0x87` 用途未确认。 |
 | `SLIC` | `0x83` / `0x40` / `0x41` / `0x45` / `0x37` / `0x38` / `0x39` | Confirmed(raw)/Unknown semantics | `SLIC` record 字段已解析；JP/EN 108/108 条记录字段顺序完全一致。`0x83` 分布为 `0x0:10, 0x1:23, 0x2:14, 0x3:61`，并在已核对 decoder 中使用 shared packed state decoder 的低位 helpers；`0x37=#FFFFFFFF`、`0x38=#FF000000`、每条 `0x39` 为 4 个 Color32。只读模型/JSON/Markdown/inspect 现保留这些 Color32 的 raw hex。Color32 与 `0x83` 业务语义未确认。 |
-| `TEXT` | `0x33` / `0x7A` / `0x7B` / `0x41` / `0x78` / `0x79` / `0x7C` | Confirmed(raw)/Unknown semantics | JP/EN 的 105/131 条 `TEXT` 字段顺序完全一致，`0x7A` 字符串字段均存在；`0x33` 已按 raw VectorFloat32 暴露为 vector + raw hex，`0x7B` 已按 raw packed record 暴露为 raw hex 与 prefix+uint16 解码值列表，且 full survey 已汇总这两组分布。JP/EN 分别有 97/123 条 `0x7A` strict UTF-8 invalid；所有 `0x7A` raw content 均可严格按 CP932/Shift-JIS 解码，并已在模型/JSON/Markdown/inspect 中以 `field7AShiftJis` 暴露只读 decoded preview，full survey 另有 `TextField7AShiftJisStringCounts`。其它字段按 raw int 分布输出。当前不确认 `0x7A` 最终文本编码、`0x33/0x7B` 业务含义、布局和渲染语义。 |
+| `TEXT` | `0x33` / `0x7A` / `0x7B` / `0x41` / `0x78` / `0x79` / `0x7C` | Confirmed(raw)/Unknown semantics | JP/EN 的 105/131 条 `TEXT` 字段顺序完全一致，`0x7A` 字符串字段均存在；`0x33` 已按 raw VectorFloat32 暴露为 vector + raw hex，`0x7B` 已按 raw packed record 暴露为 raw hex 与 prefix+uint16 解码值列表，且 full survey 已汇总这两组分布。JP/EN 分别有 97/123 条 `0x7A` strict UTF-8 invalid；所有 `0x7A` raw content 均可严格按 CP932/Shift-JIS 解码，并已在模型/JSON/Markdown/inspect 中以 `field7AShiftJis` 暴露只读 decoded preview，full survey 另有 `TextField7AShiftJisStringCounts`。其它字段按 raw int 分布输出。当前确认 `0x7A` 的 CP932/Shift-JIS 解码规则，但不确认 `0x33/0x7B` 业务含义、文本布局和渲染语义。 |
 | `NCAT` | `0x0E` | Confirmed(raw)/Unknown semantics | 分类 raw 值；full survey 中聚合所有 `NCAT` 块后，记录数等于 NODE 的场景为 314/314 与 318/318。Shama 和部分 UI 样本出现非零值；分类语义未确认。 |
 | `NCAT` | `0x03` / `0x0D` / `0x0F` | Confirmed(raw)/Unknown semantics | detail record 附加字段：primary `0x03` kind 已见 `(none)`、`ExtParamData`、`FontParamData`、`MkRubyTextData`、`fontSlot/fontslot`、`fontNLO`；`0x0D` 为 raw byte，`0x0F` 为混合 payload 参数字段，已见 `String/RawByte03/Int32/Float32`。运行时语义未确认。 |
 | `CATR` | `0x03` / `0x0D` / `0x0E` / `0x0F` | Confirmed(raw)/Unknown semantics | 独立 compact attribute-like block；full survey 中 JP/EN 为 538/571 个块，trailing bytes 均为 0。常见字段 shape 为 `0x0E,0x03,0x0D,0x0F String`，另有 1/1 个双 `0x03/0x0D/0x0F` 的 7 字段例外。字符串和值只按 raw payload 保留，不命名 callback/slot/font 语义。 |
@@ -279,7 +279,7 @@ full survey 当前没有未知 VTBF type code，`ScenesWithWarnings` 也为 0/31
 | `0x30` | flags。 |
 | `0x3B` | first child index，`-1` 表示无子节点。 |
 | `0x3C` | next sibling index，`-1` 表示无兄弟节点。 |
-| `0x07` | 可选注释文本；Ras 中 `Ras_root` 有非 ASCII 长注释 raw bytes，符合 Shift-JIS byte-shape candidate；最终编码仍以 raw bytes 为准。 |
+| `0x07` | 可选注释文本；Ras 中 `Ras_root` 有非 ASCII 长注释 raw bytes，解析器按 CP932/Shift-JIS 解码并保留 raw bytes。 |
 
 Ras 样本开头：
 
@@ -369,26 +369,28 @@ Ras 中 TRS2 每条记录都有 `0x31/0x32/0x33/0x37/0x38/0x3A/0x3D/0x3E`，且�
 
 ## Shared packed state words
 
-`CIMG.0x48` 不是 image cast 私有 flags。已核对的 loader/xref 中，`sub_88EC90` 将它保存到 CIMG 结构首个 dword，然后调用一组小 decoder 拆成多个 enum/bool-like 中间值；同一组 decoder 也被 `sub_88E120` (`CSLI.0x80`)、`sub_88F740` (`CNUM.0x48`)、`sub_88BDB0` (`TEX.0x62`)、`sub_88C670` (`LAYR.0x20` raw state) 和 `sub_88E7D0` (`SLIC.0x83` 低位状态) 复用。因此当前把这类字段写成 shared packed state word；具体是 blend、filter、wrap、layout 还是其它渲染状态，仍未确认。
+`CIMG.0x48` 不是 image cast 私有 flags；它属于一组 shared packed state word。已核对的 loader/xref 中，`sub_88EC90` 将它保存到 CIMG 结构首个 dword，然后调用一组小 decoder 拆成多个 enum/bool-like 中间值；同一组 decoder 也被 `sub_88E120` (`CSLI.0x80`)、`sub_88F740` (`CNUM.0x48`)、`sub_88BDB0` (`TEX.0x62`)、`sub_88C670` (`LAYR.0x20` raw state) 和 `sub_88E7D0` (`SLIC.0x83` 低位状态) 复用。
+
+2026-05-31 对抗校验后，CIMG draw 路径的低位语义可提升为已确认：低 4 位是 draw/blend mode，其中 mode `1` 是 additive/effect；`0x10` 是 flipU，`0x20` 是 flipV，`0xC0` 是 UV permutation mode；`0x7800` 是 surface mode，`0/0x0800/0x1000/0x1800/0x2000` 分别解码为 `0/1/2/3/4`。其它 owner（例如 TEX/CNUM/CSLI/SLIC）仍只按 shared packed state raw/decoder 记录，不把这些 CIMG draw 语义直接外推。
 
 已核对的 decoder 位段拆分如下。表中的输出只说明 loader/decoder 结构，不命名业务语义：
 
 | Mask | Decoder output | 已知调用范围 |
 | --- | --- | --- |
-| `0x0000000F` | enum `0..3`，其它值落回 `0` | `CIMG.0x48`、`CSLI.0x80`、`CNUM.0x48` |
-| `0x00000010` | bool | `CIMG.0x48`、`SLIC.0x83` |
-| `0x00000020` | bool | `CIMG.0x48`、`SLIC.0x83` |
-| `0x000000C0` | enum `0..3` | `CIMG.0x48`、`SLIC.0x83` |
+| `0x0000000F` | CIMG: draw/blend mode；mode `1` = additive/effect。其它 owner 只记录 enum `0..3` | `CIMG.0x48`、`CSLI.0x80`、`CNUM.0x48` |
+| `0x00000010` | CIMG: flipU；其它 owner 只记录 bool | `CIMG.0x48`、`SLIC.0x83` |
+| `0x00000020` | CIMG: flipV；其它 owner 只记录 bool | `CIMG.0x48`、`SLIC.0x83` |
+| `0x000000C0` | CIMG: UV permutation mode `0..3`；其它 owner 只记录 enum | `CIMG.0x48`、`SLIC.0x83` |
 | `0x000000F0` | enum `0..2` for `0/0x10/0x20`，其它值落回 `0` | `CIMG.0x48`、`CSLI.0x80`、`TEX.0x62` |
 | `0x00000100` | bool | `CIMG.0x48`、`CSLI.0x80`、`LAYR.0x20` raw state |
 | `0x00000F00` | enum `0..2` for `0/0x100/0x200`，其它值落回 `0` | `CIMG.0x48`、`CSLI.0x80`、`TEX.0x62` |
-| `0x00007800` | enum `0..4` for `0/0x800/0x1000/0x1800/0x2000`，其它值落回 `0` | `CIMG.0x48`、`CSLI.0x80`、`CNUM.0x48` |
+| `0x00007800` | CIMG: surface mode `0..4` for `0/0x800/0x1000/0x1800/0x2000`；其它 owner 只记录 enum | `CIMG.0x48`、`CSLI.0x80`、`CNUM.0x48` |
 | `0x00018000` | bool | `CIMG.0x48`、`CSLI.0x80`、`CNUM.0x48` |
 | `0x00F00000` | enum `0..9` for `0x0..0x900000`，其它值落回 `0` | `CIMG.0x48` |
 | `0x01000000` | bool | `CIMG.0x48` |
 | `0x02000000` | bool | `CIMG.0x48` |
 
-2026-05-29 复核 decoder xref 后，直接调用关系仍停留在装载/结构化阶段：`0xF0/0xF00` helpers 覆盖 `TEX` 与 image/slice/number cast；低位 `0x10/0x20/0xC0` helpers 覆盖 `CIMG` 与 `SLIC`；`0xF00000/0x01000000/0x02000000` 目前只见 `CIMG` 装载路径调用。尚未确认这些拆出 enum/bool 在后续 draw/sampler/layout 状态里的最终业务含义。
+2026-05-29 复核 decoder xref 时，直接调用关系仍停留在装载/结构化阶段。2026-05-31 进一步结合 `sub_88E730`、`sub_7DAE10`、draw/raster 对照后，只把 CIMG 的 blend/flip/UV/surface mode 提升为运行时语义；`0xF0/0xF00`、`0xF00000/0x01000000/0x02000000` 以及非 CIMG owner 的业务含义仍未确认。
 
 full survey 现在输出统一的 `SharedPackedStateOwner*` 聚合：owner 总数、owner+raw、owner+bit、low nibble、`0xF0`、`0xF00` 和 upper mask。JP/EN owner 总数分别为 `CIMG.0x48=7063/7228`、`CNUM.0x48=217/217`、`CSLI.0x80=26/26`、`LAYR.0x20=314/322`、`SLIC.0x83=108/108`、`TEX.0x62=2906/2922`。raw distinct 分布为：`CIMG.0x48` 78/82 种，top 为 `0x408000:3331/3409`、`0x408001:1208/1221`；`CNUM.0x48` 恒为 `0x8000`；`CSLI.0x80` 为 `0x8000:19`、`0x8001:6`、`0x8002:1`；`LAYR.0x20` 为 `0x100:220/225`、`0x0:94/97`；`SLIC.0x83` 为 `0x3:61`、`0x1:23`、`0x2:14`、`0x0:10`；`TEX.0x62` 为 `0x110:2625/2638`、`0x0:281/284`。这些聚合只用于复算 packed layout 与跨 owner 对比，不把任何 bit 命名为业务状态。
 
@@ -425,7 +427,7 @@ bit 与资源选择的交叉统计显示：JP/EN 的非零 `0x45` group index �
 
 Chiffon 中 extra mask `0x100` 出现 6 条 track，全部属于 `Action_Wait3 -> smile` 的 transform/display 轨道，目标节点为 hidden CIMG 节点。Otohime 中 `extra=0x100` 扩展到 63 条 track，全部目标都是 CIMG 节点，node flags 分布为 `0xF01:61, 0xE01:2`，groups 为 `eye:48, puru:13, arm:2`，初始 display=false 为 2/63；仍不改变 `KEY.0x5B` 存储类型。这两个角色样本支持“动作局部 CIMG 控制”候选，但 full survey 已显示不能把该候选全局化。
 
-full survey 中 base byte 仍只出现 `0x13/0x23/0x33/0x43`，extra mask 只出现 `0x0/0x100`；`extra=0x100` 为 3063 与 3066 条。`TrackFlagExtra*` 交叉聚合显示：`0x100` 出现在 JP/EN 的 123/124 个场景；base 分布为 `0x13=1980/1983`、`0x23=177/177`、`0x33=51/51`、`0x43=855/855`；主要 track type 为 `5(RotateZ)=851/851`、`24(AlphaOrOpacity)=468/468`、`7(ScaleY)=438/438`、`6(ScaleX)=379/379`、`18(PrimaryImageVariantIndexCandidate)=174/174`。`0x100` 下 key value type 仍按 base byte 对应 Float32/PackedAngle/Int32/Bool，说明 extra mask 不改变 value storage。
+full survey 中 base byte 仍只出现 `0x13/0x23/0x33/0x43`，extra mask 只出现 `0x0/0x100`；`extra=0x100` 为 3063 与 3066 条。`TrackFlagExtra*` 交叉聚合显示：`0x100` 出现在 JP/EN 的 123/124 个场景；base 分布为 `0x13=1980/1983`、`0x23=177/177`、`0x33=51/51`、`0x43=855/855`；主要 track type 为 `5(RotateZ)=851/851`、`24(MaterialAlpha)=468/468`、`7(ScaleY)=438/438`、`6(ScaleX)=379/379`、`18(PrimaryImageVariantIndexCandidate)=174/174`。`0x100` 下 key value type 仍按 base byte 对应 Float32/PackedAngle/Int32/Bool，说明 extra mask 不改变 value storage。
 
 `0x100` 的目标不是全 CIMG：JP/EN 中 CIMG target 为 1818/1821 条 track，非 CIMG target 为 1245/1245；初始 display=false 为 214/214。animation 名称覆盖 `Loop`、`Action`、`TrackSkip_Loop`、`loop_SSS_Plus`、`AdvertiseLoop`、`Action_Wait*`、`DressChange` 等 UI/loop/action 混合上下文。因此当前只能把 `0x100` 记录为 raw extra mask；不能命名为 action-local 或 special-effect flag。
 
@@ -435,17 +437,17 @@ transform track 现在单独输出 `TransformTrack*` full survey 聚合。JP/EN 
 
 type 18 / 19 当前分别命名为 `PrimaryImageVariantIndexCandidate` / `SecondaryImageVariantIndexCandidate`。full survey 中 JP/EN 分别有 1,791/1,792 条 type 18 track、6,986/6,988 个 key；legacy `ImageVariant*` 字段继续保留 type 18 的 primary+secondary 合计数量宽松检查，仅用于兼容早期统计。新增 `ImageVariantGroup*` 聚合按 primary/secondary CREF 组分别复核：`18 primary` 在 JP/EN 为 1,791/1,792 条 track、6,986/6,988 个 key，全部目标节点有 CIMG、全部 track/key in range；`19 secondary` 在 JP/EN 均为 333 条 track、9,769 个 key，同样全部有 CIMG 且全部 in range。type 19 secondary 的 CREF count 分布为 `2:41, 5:16, 32:276`，key value 分布为 0..31。`ImageVariantGroupCimg45FirstKey*` 显示 type 18/19 最早 key 与 `CIMG.0x45` 的对应关系不是全覆盖：primary JP/EN 为 1533/1534 match、258/257 mismatch，secondary 两组都是 332 match、1 mismatch。`sub_7CE8B0` 对 type 18 使用 CIMG primary CREF count 校验，对 type 19 使用 secondary CREF count 校验；运行时 `sub_7D4F50/sub_7D50A0` 也把 type 18/19 分别写入 primary/secondary 图片 slot，并经 `sub_7D5590/sub_7D56A0` 解析到 CREF 图块坐标。因此 type 18 不应命名为跨 primary/secondary 两组的统一选择，`CIMG.0x45` 是静态 fallback/default group index，但不能全局命名为动画起始 key、当前引用或选中引用。
 
-type 24 与 `TRS2.0x37` 的 alpha 通道有交叉证据：Ras/Chiffon/Otohime 中分别有 56/58、34/34、37/37 条 type 24 track 至少一个 key 与目标节点初始材质 alpha 匹配。full survey 中 JP/EN 为 9,849/9,977 条 type 24 track、19,242/19,427 个 key，所有 key 都在 `0..1`，所有目标节点都有 material alpha；初始 alpha 匹配为 8,142/8,229 条 track。它也用于无 CIMG 的 root/null/control 节点，且可在动画中从初始 alpha 过渡到其它值，所以当前按“目标有效 opacity/alpha 动画通道”候选处理，不并入 `MaterialColor` 四通道命名。
+type 24 与 `TRS2.0x37` 的 alpha 通道有交叉证据：Ras/Chiffon/Otohime 中分别有 56/58、34/34、37/37 条 type 24 track 至少一个 key 与目标节点初始材质 alpha 匹配。full survey 中 JP/EN 为 9,849/9,977 条 type 24 track、19,242/19,427 个 key，所有 key 都在 `0..1`，所有目标节点都有 material alpha；初始 alpha 匹配为 8,142/8,229 条 track。参考运行时将 type 24 写入 `MaterialColor.A`，因此当前按 material alpha / effective opacity 动画通道处理；它也用于无 CIMG 的 root/null/control 节点，父级 effective opacity 会继续向子树相乘。
 
 当前 PNG renderer / Viewer 按节点树累计 effective opacity：本节点 material alpha（含 type 24 覆盖后的值）会与父级 effective opacity 相乘。Milk 默认状态中 `Tail_Toge_NUL`、`Arm_2_ALL` 这类无 CIMG 父节点 alpha 为 0，子 CIMG 因父级 effective opacity 为 0 而不应绘制。
 
 结构层 full survey 现在输出 `TrackKeyStorageMatrixCounts`、`TrackFieldSequenceCounts`、`KeyFieldSequenceCounts`、`TrackFrameRangeRelationCounts`、`TrackKeyFrameOrderCounts`、`TrackKeyFrameDuplicateCounts`、`TrackFirstFrameDeltaCounts` 和 `TrackLastFrameDeltaCounts`。JP/EN 的 `TRK` 字段顺序各只有一种：`0x0053:0x0006>0x0057:0x0006>0x0054:0x0009>0x0058:0x0008>0x0059:0x0008`，覆盖 94,611/95,558 条 track。`KEY` 字段顺序各只有 4 种，差异仅为 `0x5B` type：Float32 为 113,316/114,370，PackedAngleCandidate 为 45,602/45,690，Int32 为 16,755/16,757，Bool 为 11,107/11,185；其余字段保持 `0x5A Int32`、`0x5C UInt16`、`0x5D Float32`、`0x5E Float32`。
 
-key frame 序列在 JP/EN 的 94,611/95,558 条 track 中全部为非递减。`TRK.0x58 first frame` 与最小 key frame 的差值全部为 0；`TRK.0x59 last frame` 等于最大 key frame 的 track 为 91,185/92,114，另外 3,426/3,444 条为 last frame 大于最大 key frame，仍包含全部 key。重复 frame 只观察到 2/2 条 track，均在 `MM_UI_DetailOption__Base_UI.sbscene` 与 `MM_UI_Shiborikomi__Base_UI.sbscene` 的 `FadeIn -> cover`、type 24 `AlphaOrOpacity`，frame 4 有两个不同 alpha key。因此只能确认 key frame 非递减，不能写成严格递增，也不能把重复 frame 的运行时选择规则当作已确认。
+key frame 序列在 JP/EN 的 94,611/95,558 条 track 中全部为非递减。`TRK.0x58 first frame` 与最小 key frame 的差值全部为 0；`TRK.0x59 last frame` 等于最大 key frame 的 track 为 91,185/92,114，另外 3,426/3,444 条为 last frame 大于最大 key frame，仍包含全部 key。重复 frame 只观察到 2/2 条 track，均在 `MM_UI_DetailOption__Base_UI.sbscene` 与 `MM_UI_Shiborikomi__Base_UI.sbscene` 的 `FadeIn -> cover`、type 24 `MaterialAlpha`，frame 4 有两个不同 alpha key。因此只能确认 key frame 非递减，不能写成严格递增，也不能把重复 frame 的运行时选择规则当作已确认。
 
-`TRK.0x57` 在 full survey 中没有 key count mismatch。`KEY.0x5C` 当前按 interpolation 候选输出：0/1/2 分别命名为 `StepOrConstant`、`Linear`、`Spline`。full survey 的 `0x5C` 分布为 JP `Linear=107658, Spline=51674, StepOrConstant=27448`，EN `Linear=108687, Spline=51787, StepOrConstant=27528`。非零 tangent 为 9757/9777，按 interpolation 为 `Spline=8293/8312`、`Linear=1464/1465`、`StepOrConstant=0/0`。
+`TRK.0x57` 在 full survey 中没有 key count mismatch。`KEY.0x5C` 已按参考运行时收紧为 interpolation selector：`0` 为 step/hold，`2` 为 Hermite spline，其它非零值按 linear 处理。full survey 的 `0x5C` 分布为 JP `Linear=107658, Spline=51674, StepOrConstant=27448`，EN `Linear=108687, Spline=51787, StepOrConstant=27528`。非零 tangent 为 9757/9777，按 interpolation 为 `Spline=8293/8312`、`Linear=1464/1465`、`StepOrConstant=0/0`。
 
-`0x5D != 0x5E` 在 JP/EN 中均为 123 个 key、9 个场景；按 track type 为 `5(RotateZ)=104`、`1(TranslateY)=11`、`6(ScaleX)=4`、`7(ScaleY)=4`，按 extra mask 为 `0x0=102`、`0x100=21`。因此 `0x5D/0x5E` 当前保留为两个 tangent/附加参数候选，不合并；具体 Hermite/Bezier 或其它插值语义仍未确认。
+`0x5D != 0x5E` 在 JP/EN 中均为 123 个 key、9 个场景；按 track type 为 `5(RotateZ)=104`、`1(TranslateY)=11`、`6(ScaleX)=4`、`7(ScaleY)=4`，按 extra mask 为 `0x0=102`、`0x100=21`。运行时 Hermite 段使用当前 key 的 `0x5E` 作为 outgoing tangent、下一 key 的 `0x5D` 作为 incoming tangent，因此二者不能合并；duplicate frame 的选择规则仍单独保留为边界未知。
 
 新增 KEY tangent 位置/符号聚合显示，非零 tangent 的 key 序列位置为 JP/EN `first=3003/3021`、`middle=4648/4649`、`last=2037/2038`、`single=69/69`；`0x5D != 0x5E` 只出现在 `middle=116/116` 和 `last=7/7`。mismatch 中 `0x5D` 与前一段 value delta 同号为 106/106，`0x5E` 与后一段 value delta 同号为 90/90；但整体非零 tangent 中两侧都与相邻 delta 同号仅 486/486，因此仍不能把 `0x5D/0x5E` 写成简单相邻差分。
 
@@ -471,4 +473,4 @@ degrees = raw * 180.0 / 32768.0
 
 Ras 中 `KEY.0x5B type 0x0B` 主要出现在 track type `5(RotateZ)`，并有少量 type `3/4` 旋转候选。`CAM.0x14` 在 JP/EN full survey 中全量为 `0x1FFF`，仍按 flags-like / unknown 处理；它不是该旋转轨道上下文，不应套用上述角度公式。
 
-full survey 将 `KEY.0x5B type 0x0B` 扩展到 surfboard/surfboard_EN 全量样本：JP 为 16,265 条 track / 45,602 个 key，EN 为 16,305 条 track / 45,690 个 key；两组均只出现在 track type `3/4/5`。raw distinct 两组均为 1,092，raw range 均为 `-75548..83740`，候选换算约 `-414.9976..459.9976 deg`。因此当前不能把 raw 当作 16-bit angle；只能确认它是 `0x0B` 字段中以 signed integer raw 保存的旋转候选值，公式和 wrap/clamp 行为仍是候选。
+full survey 将 `KEY.0x5B type 0x0B` 扩展到 surfboard/surfboard_EN 全量样本：JP 为 16,265 条 track / 45,602 个 key，EN 为 16,305 条 track / 45,690 个 key；两组均只出现在 track type `3/4/5`。raw distinct 两组均为 1,092，raw range 均为 `-75548..83740`，按 `raw * 180 / 32768` 换算约 `-414.9976..459.9976 deg`。对抗校验后，旋转渲染按 signed binary angle 处理，并在 2D 屏幕坐标中取负号；raw 不应先截断为 16-bit，超过一圈的值按同一比例进入矩阵。

@@ -54,8 +54,8 @@
                               Checked="RenderOption_Changed"
                               Unchecked="RenderOption_Changed" />
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="缩放" Margin="0,0,8,0" VerticalAlignment="Center" Foreground="#5E6B7A" />
+                <StackPanel Margin="15,0,5,0" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="缩放" VerticalAlignment="Center" Foreground="#5E6B7A" />
                     <Slider x:Name="ZoomSlider"
                             Width="160"
                             Minimum="0.1"
@@ -119,17 +119,17 @@
                         </TreeView.ItemContainerStyle>
                         <TreeView.ItemTemplate>
                             <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                                <Grid MinWidth="260" Height="26" Margin="0,1">
+                                <Grid MinWidth="260" Margin="2">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="44" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="54" />
-                                        <ColumnDefinition Width="42" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding Index}" Margin="4,0,0,0" VerticalAlignment="Center" Foreground="#6B7480" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#11151A" />
-                                    <TextBlock Grid.Column="2" Text="{Binding Display}" VerticalAlignment="Center" Foreground="#4D5968" />
-                                    <TextBlock Grid.Column="3" Text="{Binding Image}" VerticalAlignment="Center" Foreground="#4D5968" />
+                                    <TextBlock Grid.Column="0" Margin="5,0" Text="{Binding Index}" VerticalAlignment="Center" Foreground="#6B7480" />
+                                    <TextBlock Grid.Column="1" Margin="5,0" Text="{Binding Name}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="#11151A" />
+                                    <TextBlock Grid.Column="2" Margin="5,0" Text="{Binding Display}" VerticalAlignment="Center" Foreground="#4D5968" />
+                                    <TextBlock Grid.Column="3" Margin="5,0" Text="{Binding Image}" VerticalAlignment="Center" Foreground="#4D5968" />
                                 </Grid>
                             </HierarchicalDataTemplate>
                         </TreeView.ItemTemplate>
@@ -143,8 +143,12 @@
                 <ScrollViewer x:Name="SceneScrollViewer"
                               HorizontalScrollBarVisibility="Auto"
                               VerticalScrollBarVisibility="Auto"
-                              PreviewMouseWheel="SceneScrollViewer_PreviewMouseWheel">
+                              PreviewMouseWheel="SceneScrollViewer_PreviewMouseWheel"
+                              SizeChanged="SceneScrollViewer_SizeChanged">
                     <local:SceneRenderSurface x:Name="RenderSurface"
+                                              CenterContentHorizontally="True"
+                                              ShowGrid="False"
+                                              ShowSelectionBounds="True"
                                               MouseLeftButtonDown="RenderSurface_MouseLeftButtonDown" />
                 </ScrollViewer>
                 <Border x:Name="EmptyOverlay"
@@ -204,15 +208,27 @@
                                 BorderBrush="#D7DDE5"
                                 BorderThickness="0,0,0,1"
                                 Padding="12,9">
-                            <TextBlock Text="选中子树预览"
-                                       FontSize="15"
-                                       FontWeight="SemiBold" />
+                            <DockPanel LastChildFill="True">
+                                <CheckBox x:Name="SelectionPreviewBoundsCheckBox"
+                                          DockPanel.Dock="Right"
+                                          Content="显示节点框"
+                                          IsChecked="True"
+                                          Checked="SelectionPreviewBounds_Changed"
+                                          Unchecked="SelectionPreviewBounds_Changed" />
+                                <TextBlock Text="选中子树预览"
+                                           FontSize="15"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
                         </Border>
                         <ScrollViewer x:Name="SelectionScrollViewer"
                                       HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Auto"
                                       SizeChanged="SelectionScrollViewer_SizeChanged">
                             <local:SceneRenderSurface x:Name="SelectionRenderSurface"
+                                                      ShowGrid="False"
+                                                      ShowAxes="False"
+                                                      ShowSelectionBounds="True"
                                                       IsHitTestVisible="False" />
                         </ScrollViewer>
                     </DockPanel>
@@ -241,6 +257,8 @@
                     <ColumnDefinition Width="260" />
                     <ColumnDefinition Width="140" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -284,11 +302,20 @@
                         Grid.Column="6"
                         Content="停止"
                         Click="StopAnimation_Click" />
-                <CheckBox x:Name="LoopAnimationCheckBox"
+                <CheckBox x:Name="EnableAnimationSlotCheckBox"
                           Grid.Column="7"
+                          Content="启用"
+                          Checked="EnableAnimationSlot_Changed"
+                          Unchecked="EnableAnimationSlot_Changed" />
+                <CheckBox x:Name="LoopAnimationCheckBox"
+                          Grid.Column="8"
                           Content="循环"
                           Checked="LoopAnimation_Changed"
                           Unchecked="LoopAnimation_Changed" />
+                <Button x:Name="ResetAnimationStatesButton"
+                        Grid.Column="9"
+                        Content="重置所有状态"
+                        Click="ResetAnimationStates_Click" />
             </Grid>
         </Border>
 

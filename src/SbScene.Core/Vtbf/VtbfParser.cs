@@ -9,7 +9,7 @@ public sealed class VtbfParser
     private const int BlockPrefixSize = 8;
     private const int BlockHeaderSize = 20;
     private const int FieldHeaderSize = 12;
-    private static readonly Encoding Utf8NoThrow = new UTF8Encoding(false, false);
+    private static readonly Encoding TextEncoding = CreateTextEncoding();
 
     private readonly List<string> _warnings = [];
     private ReadOnlyMemory<byte> _buffer;
@@ -170,37 +170,48 @@ public sealed class VtbfParser
             throw new VtbfParseException($"Invalid linear vtc0 block length {declaredLength} at 0x{blockOffset:X}.");
         }
 
-        var blockEnd = blockOffset + BlockPrefixSize + declaredLength;
-        if (blockEnd > _buffer.Length)
+        var fieldEnd = blockOffset + BlockPrefixSize + declaredLength;
+        if (fieldEnd > _buffer.Length)
         {
             throw new VtbfParseException(
                 $"Block at 0x{blockOffset:X} declares length {declaredLength}, which exceeds file end 0x{_buffer.Length:X}.");
         }
 
         var tag = ReadAscii(cursor + 8, 4);
-        var low = ReadUInt16(cursor + 12);
-        var high = ReadUInt16(cursor + 14);
+        var childCount = ReadUInt16(cursor + 12);
+        var fieldCount = ReadUInt16(cursor + 14);
         var paramRawHex = Convert.ToHexString(_buffer.Span.Slice(cursor + 12, 4));
         var payloadStart = cursor + 16;
-        var payloadEnd = blockEnd;
-        var fields = ParseCompactFields(tag, payloadStart, payloadEnd, low, high, out var trailing);
+        var fields = ParseCompactFields(tag, payloadStart, fieldEnd, childCount, fieldCount, out var trailing);
 
-        cursor = blockEnd;
+        cursor = fieldEnd;
+        var children = new List<VtbfBlock>(childCount);
+        for (var i = 0; i < childCount; i++)
+        {
+            if (cursor >= _buffer.Length || ReadAscii(cursor, 4) != "vtc0")
+            {
+                _warnings.Add($"{tag} at 0x{blockOffset:X} declares {childCount} child block(s), but child {i} is missing.");
+                break;
+            }
+
+            children.Add(ParseLinearBlock(ref cursor, $"{path}/{tag}[{i}]"));
+        }
+
         return new VtbfBlock
         {
             Tag = tag,
             Offset = blockOffset,
             ContentOffset = payloadStart,
-            EndOffset = blockEnd,
+            EndOffset = cursor,
             Length = declaredLength,
-            PropertyCount = fields.Count,
-            ChildCount = 0,
-            ParamLow = low,
-            ParamHigh = high,
+            PropertyCount = fieldCount,
+            ChildCount = childCount,
+            ParamLow = childCount,
+            ParamHigh = fieldCount,
             ParamRawHex = paramRawHex,
             Path = path,
             Fields = fields,
-            Children = Array.Empty<VtbfBlock>(),
+            Children = children,
             TrailingBytes = trailing,
         };
     }
@@ -764,7 +775,13 @@ public sealed class VtbfParser
     {
         var terminator = Array.IndexOf(raw, (byte)0);
         var length = terminator >= 0 ? terminator : raw.Length;
-        return Utf8NoThrow.GetString(raw, 0, length);
+        return TextEncoding.GetString(raw, 0, length);
+    }
+
+    private static Encoding CreateTextEncoding()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(932);
     }
 
     private static long[] DecodeInt16Array(byte[] raw)

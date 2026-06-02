@@ -2,6 +2,13 @@ using SbScene.Core.Semantics;
 
 namespace SbScene.Core.Rendering;
 
+public sealed class SbSceneResolvedNodeColorState
+{
+    public required RgbaColor MaterialColor { get; init; }
+
+    public required RgbaColor IlluminationColor { get; init; }
+}
+
 public static class SbSceneRenderTree
 {
     private const double MinOpacity = 0.0;
@@ -107,6 +114,84 @@ public static class SbSceneRenderTree
         }
 
         return Enumerable.Range(0, nodes.Count).Select(Resolve).ToArray();
+    }
+
+    public static IReadOnlyList<SbSceneResolvedNodeColorState> BuildEffectiveColors(
+        IReadOnlyList<NodeInfo> nodes,
+        IReadOnlyDictionary<int, int> parentByNode,
+        Func<int, RgbaColor> getLocalMaterialColor,
+        Func<int, RgbaColor> getLocalIlluminationColor)
+    {
+        ArgumentNullException.ThrowIfNull(nodes);
+        ArgumentNullException.ThrowIfNull(parentByNode);
+        ArgumentNullException.ThrowIfNull(getLocalMaterialColor);
+        ArgumentNullException.ThrowIfNull(getLocalIlluminationColor);
+
+        var memo = new Dictionary<int, SbSceneResolvedNodeColorState>();
+        var visiting = new HashSet<int>();
+
+        SbSceneResolvedNodeColorState Resolve(int index)
+        {
+            if (memo.TryGetValue(index, out var cached))
+            {
+                return cached;
+            }
+
+            var local = new SbSceneResolvedNodeColorState
+            {
+                MaterialColor = getLocalMaterialColor(index),
+                IlluminationColor = getLocalIlluminationColor(index),
+            };
+            if (!visiting.Add(index))
+            {
+                return local;
+            }
+
+            var result = local;
+            if (parentByNode.TryGetValue(index, out var parentIndex) && parentIndex >= 0 && parentIndex < nodes.Count)
+            {
+                var parent = Resolve(parentIndex);
+                result = new SbSceneResolvedNodeColorState
+                {
+                    MaterialColor = Multiply(parent.MaterialColor, local.MaterialColor),
+                    IlluminationColor = SaturatingAdd(parent.IlluminationColor, local.IlluminationColor),
+                };
+            }
+
+            visiting.Remove(index);
+            memo[index] = result;
+            return result;
+        }
+
+        return Enumerable.Range(0, nodes.Count).Select(Resolve).ToArray();
+    }
+
+    private static RgbaColor Multiply(RgbaColor left, RgbaColor right)
+    {
+        return new RgbaColor(
+            MultiplyChannel(left.R, right.R),
+            MultiplyChannel(left.G, right.G),
+            MultiplyChannel(left.B, right.B),
+            MultiplyChannel(left.A, right.A));
+    }
+
+    private static RgbaColor SaturatingAdd(RgbaColor left, RgbaColor right)
+    {
+        return new RgbaColor(
+            SaturatingAddChannel(left.R, right.R),
+            SaturatingAddChannel(left.G, right.G),
+            SaturatingAddChannel(left.B, right.B),
+            SaturatingAddChannel(left.A, right.A));
+    }
+
+    private static byte MultiplyChannel(byte left, byte right)
+    {
+        return (byte)Math.Clamp((int)Math.Round(left * right / 255.0), byte.MinValue, byte.MaxValue);
+    }
+
+    private static byte SaturatingAddChannel(byte left, byte right)
+    {
+        return (byte)Math.Min(byte.MaxValue, left + right);
     }
 
     private static double ClampOpacity(double opacity)

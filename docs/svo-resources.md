@@ -453,26 +453,26 @@ full survey 现在输出 `Cimg45GroupIndexCounts`、`Cimg45GroupCountIndexCounts
 
 动画侧 full survey 现在还输出 `ImageVariantGroup*` 分组范围校验。`18 primary` 在 JP/EN 为 1,791/1,792 条 track、6,986/6,988 个 key，全部落在目标 CIMG primary CREF 组范围内；`19 secondary` 在 JP/EN 均为 333 条 track、9,769 个 key，全部落在 secondary CREF 组范围内。`ImageVariantGroupCimg45FirstKey*` 进一步显示 `0x45` 与最早 key 经常一致但不是全覆盖：JP primary 1533 match / 258 mismatch、secondary 332 match / 1 mismatch；EN primary 1534 match / 257 mismatch / 1 multi-CIMG target、secondary 332 match / 1 mismatch。该结果只确认 track value、primary/secondary CREF 组和 `0x45` 静态 index 的结构关系，不确认 `CIMG.0x45` 在播放过程中的默认/当前/选中角色。
 
-`CIMG.0x48` 已拆到 bit 分布，但它不是 CIMG 私有 flags。已核对的 loader/xref 将其作为 shared packed state word 进入 decoder；同一组低位/中位 decoder 也服务于 `CNUM`、`CSLI`、`TEX` 和 `SLIC` 的 raw state 字段。Ras 中 CIMG 只出现 bit 0、15、20、21、22、23：
+`CIMG.0x48` 已拆到 packed state 分布，但它不是 CIMG 私有 flags。已核对的 loader/xref 将其作为 shared packed state word 进入 decoder；同一组低位/中位 decoder 也服务于 `CNUM`、`CSLI`、`TEX` 和 `SLIC` 的 raw state 字段。对 CIMG draw 路径，低 4 位是 draw/blend mode，mode `1` 是 additive/effect；`0x10/0x20` 是 flipU/flipV，`0xC0` 是 UV permutation，`0x7800` 是 surface mode。Ras 中 CIMG 只出现 low nibble bit 0 以及 bit 15、20、21、22、23：
 
 | Bit | Mask | Image casts | Ras 局部观察 |
 | ---: | --- | ---: | --- |
-| 0 | `0x00000001` | 9 | 只出现在 `04_present_eff`、`*_add` 和 `hart_*` 节点，是 bit 22 的子集；这是节点命名/分组相关性，不确认混合或渲染语义。 |
+| 0 | `0x00000001` | 9 | low nibble draw mode 为 `1`，运行时按 additive/effect blend；节点命名/分组只作为样本定位。 |
 | 15 | `0x00008000` | 304 | Ras 样本中全部 CIMG 设置；full survey 中为高覆盖候选，但 JP/EN 仍有 24/37 个 CIMG 不带该 bit，不确认 bit 语义。 |
 | 20 | `0x00100000` | 121 | 117/121 个与 bit 23 共现，另有少量 tail/wing/ribbon 特例。 |
 | 21 | `0x00200000` | 6 | Ras 中只覆盖少量 tail/gorgeous/plain 特例。 |
 | 22 | `0x00400000` | 182 | 常见于 expression/body/effect 节点。 |
 | 23 | `0x00800000` | 117 | Ras 中是 bit 20 的子集，常见于 hair/clothes/body 节点；后续 Otohime/full survey 已证明不能写成全局子集规则。 |
 
-主 Markdown/inspect 现在同时输出 packed state bits、full-value 交叉统计和 bit 共现表；legacy JSON 字段名仍是 `imageCastFlagBits`。Ras 中 `0+22` 共现 9 次，说明 bit 0 是 bit 22 的小子集；`20+23` 共现 117 次，说明 bit 23 在 Ras 内完全落在 bit 20 内。bit 0 与 multi/secondary crop、非零 `0x45` index 没有交叉，因此它不属于资源选择索引字段；相关节点名只作为样本定位，不写成结构语义。
+主 Markdown/inspect 现在同时输出 packed state bits、full-value 交叉统计和 bit 共现表；legacy JSON 字段名仍是 `imageCastFlagBits`。Ras 中 `0+22` 共现 9 次，说明 additive/effect draw mode 在 Ras 内完全落在 bit 22 这组高位共现中；`20+23` 共现 117 次，说明 bit 23 在 Ras 内完全落在 bit 20 内。low nibble draw mode 与 multi/secondary crop、非零 `0x45` index 没有交叉，因此它不属于资源选择索引字段；相关节点名只作为样本定位。
 
-full survey 将 `CIMG.0x48` observed bits 扩展为 `0/1/4/5/6/7/8/9/11/12/13/15/20/21/22/23`。bit 15 仍是高覆盖率 CIMG 位，但不能写成全局必有或 image-cast marker；具体 bit 业务语义仍需渲染状态消费链验证。
+full survey 将 `CIMG.0x48` observed bits 扩展为 `0/1/4/5/6/7/8/9/11/12/13/15/20/21/22/23`。其中低 4 位应整体按 draw mode 解读，不能把 bit 0 单独写成资源选择语义；bit 15 仍是高覆盖率 CIMG 位，但不能写成全局必有或 image-cast marker。
 
 survey JSON 现在还会输出 `CimgFlagBitDisplayFalseCounts`、`CimgFlagBitMultiReferenceCounts`、`CimgFlagBitSecondaryReferenceCounts`、`CimgFlagBitNonZeroReferenceIndexCounts`、`CimgFlagBitNodeFlagCounts`、`CimgFlagBitGroupCounts` 和 `CimgFlagBitPairCounts`。full survey 中 `0+22` 共现为 JP/EN 1,624/1,639，`20+23` 共现为 559/567；bit 15 覆盖 7,039/7,191 个 CIMG，但 JP/EN 仍有 24/37 个 CIMG 不带 bit 15。非零 `0x45` index 与 bit 的交叉只覆盖少量记录，因此 `CIMG.0x48` bit 不应命名为资源选择索引字段。
 
-正式 survey 还新增统一的 `SharedPackedStateOwner*` 聚合，用同一口径覆盖 `CIMG.0x48`、`CNUM.0x48`、`CSLI.0x80`、`LAYR.0x20`、`SLIC.0x83` 和 `TEX.0x62`。JP/EN owner 总数分别为 `7063/7228`、`217/217`、`26/26`、`314/322`、`108/108`、`2906/2922`；`CNUM.0x48` 恒为 `0x8000`，`CSLI.0x80` 只见 `0x8000/0x8001/0x8002`，`SLIC.0x83` 只见 `0..3`。这些输出是 shared packed layout 的复算入口，不提升为具体渲染或采样语义。
+正式 survey 还新增统一的 `SharedPackedStateOwner*` 聚合，用同一口径覆盖 `CIMG.0x48`、`CNUM.0x48`、`CSLI.0x80`、`LAYR.0x20`、`SLIC.0x83` 和 `TEX.0x62`。JP/EN owner 总数分别为 `7063/7228`、`217/217`、`26/26`、`314/322`、`108/108`、`2906/2922`；`CNUM.0x48` 恒为 `0x8000`，`CSLI.0x80` 只见 `0x8000/0x8001/0x8002`，`SLIC.0x83` 只见 `0..3`。这些输出是 shared packed layout 的复算入口；除 CIMG draw 路径已经确认的 draw/flip/UV/surface 外，不外推为其它 owner 的具体渲染或采样语义。
 
-`CIMG.0x48` full value 仍保留输出，用于以后跨样本比较组合关系；bit 拆分只由 loader/decoder xref 收窄，业务语义仍是候选。
+`CIMG.0x48` full value 仍保留输出，用于以后跨样本比较组合关系；CIMG draw/flip/UV/surface 语义已由 loader、IDA 和渲染路径确认，其它高位仍保持 raw/候选。
 
 12 个 secondary CREF cast 主要集中在 eye/hair_front 节点，例如 `kirakira_eye` 的 `0x44=(4,1)`、`0x45=(2,0)`，primary refs 为 `0:43,0:46,0:47,0:39`，secondary ref 为 `0:42`。
 

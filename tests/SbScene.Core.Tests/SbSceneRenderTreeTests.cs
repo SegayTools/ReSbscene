@@ -65,8 +65,37 @@ public sealed class SbSceneRenderTreeTests
         Assert.Equal(128 / 255.0 * (64 / 255.0), opacity[2], precision: 6);
     }
 
-    private static NodeInfo Node(int index, int? childIndex = null, int? siblingIndex = null, bool display = true, byte alpha = 255)
+    [Fact]
+    public void BuildEffectiveColorsMultipliesMaterialAndAddsIllumination()
     {
+        var nodes = new[]
+        {
+            Node(0, childIndex: 1, material: new RgbaColor(128, 64, 255, 255), illumination: new RgbaColor(200, 20, 0, 200)),
+            Node(1, material: new RgbaColor(128, 255, 64, 255), illumination: new RgbaColor(100, 40, 10, 100)),
+        };
+        var parentByNode = SbSceneRenderTree.BuildParentMap(nodes);
+
+        var colors = SbSceneRenderTree.BuildEffectiveColors(
+            nodes,
+            parentByNode,
+            index => ToRgba(nodes[index].Transform2D!.MaterialColor!),
+            index => ToRgba(nodes[index].Transform2D!.IlluminationColor!));
+
+        Assert.Equal(new RgbaColor(64, 64, 64, 255), colors[1].MaterialColor);
+        Assert.Equal(new RgbaColor(255, 60, 10, 255), colors[1].IlluminationColor);
+    }
+
+    private static NodeInfo Node(
+        int index,
+        int? childIndex = null,
+        int? siblingIndex = null,
+        bool display = true,
+        byte alpha = 255,
+        RgbaColor? material = null,
+        RgbaColor? illumination = null)
+    {
+        var materialColor = material ?? new RgbaColor(255, 255, 255, alpha);
+        var illuminationColor = illumination ?? RgbaColor.Transparent;
         return new NodeInfo
         {
             Index = index,
@@ -93,12 +122,18 @@ public sealed class SbSceneRenderTreeTests
                 Display = display,
                 MaterialColor = new ColorArgbValue
                 {
-                    A = alpha,
-                    R = 255,
-                    G = 255,
-                    B = 255,
+                    A = materialColor.A,
+                    R = materialColor.R,
+                    G = materialColor.G,
+                    B = materialColor.B,
                 },
-                IlluminationColor = null,
+                IlluminationColor = new ColorArgbValue
+                {
+                    A = illuminationColor.A,
+                    R = illuminationColor.R,
+                    G = illuminationColor.G,
+                    B = illuminationColor.B,
+                },
                 VertexColors = [],
                 MultiPosFlags = null,
                 MultiSizeFlags = null,
@@ -112,5 +147,10 @@ public sealed class SbSceneRenderTreeTests
             NumericFields = [],
             ChildTags = [],
         };
+    }
+
+    private static RgbaColor ToRgba(ColorArgbValue color)
+    {
+        return new RgbaColor(color.R, color.G, color.B, color.A);
     }
 }

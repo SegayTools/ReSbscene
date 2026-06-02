@@ -82,13 +82,13 @@ Ras 样本中 5,193 条 `TRK` 的 `0x57` 都与后续 `KEY` 块声明的 key 数
 | 7 | 401 | `ScaleY` | scale Y 候选。 |
 | 8 | 10 | `ScaleZCandidate` | 与 `7/8` 缩放组出现，Ras 中全为单 key 且值为 1。 |
 | 11 | 745 | `Display` | 运行时 display/visibility 开关；`Change_Fashion` 和 `Change_Accessory` 中大量出现。 |
-| 12 | 74 | `MouthShapeA` | 口型/表情相关候选。 |
-| 13 | 73 | `MouthShapeB` | 口型/表情相关候选。 |
+| 12 | 74 | `ImageWidthCandidate` | CIMG 动态宽度候选；Ras `Action_Joy3 -> kirakira_eye` 在闭眼帧保持 `150`。 |
+| 13 | 73 | `ImageHeightCandidate` | CIMG 动态高度候选；Ras `Action_Joy3 -> kirakira_eye` 在 frame `11..34` 从 `65` 切到 `26`，配合 type 18 选择闭眼 crop。 |
 | 18 | 81 | `PrimaryImageVariantIndexCandidate` | Int32 状态轨道，20 个目标节点均有 CIMG；Ras 中 key value 全部落在对应 CIMG primary CREF 组范围内。 |
 | 21 | 4 | `MaterialColorRCandidate` | Float32 材质色 R 候选；Ras heart 节点与 `TRS2.0x37` 的 R 通道匹配。 |
 | 22 | 4 | `MaterialColorGCandidate` | Float32 材质色 G 候选；与 type 21/23 成组。 |
 | 23 | 4 | `MaterialColorBCandidate` | Float32 材质色 B 候选；与 type 21/22 成组。 |
-| 24 | 58 | `AlphaOrOpacity` | Float32 值域在 0..1，常见 `0`、`1`、`0.7843138`、`0.5882353`。 |
+| 24 | 58 | `MaterialAlpha` | Float32 值域在 0..1，写入 `MaterialColor.A` 并参与父链 effective opacity。 |
 | 25 | 4 | `IlluminationColorRCandidate` | Float32 illumination 色 R 候选；Ras heart 节点与 `TRS2.0x38` 的 R 通道匹配。 |
 | 26 | 4 | `IlluminationColorGCandidate` | Float32 illumination 色 G 候选。 |
 | 27 | 4 | `IlluminationColorBCandidate` | Float32 illumination 色 B 候选。 |
@@ -113,7 +113,7 @@ Otohime extra mask `0x100` 扩展为 63 条 track：`0x113` 60 条、`0x133` 1 �
 
 surfboard/surfboard_EN full survey 中，`TRK.flags` base byte 仍只出现 `0x13/0x23/0x33/0x43`，extra mask 只出现 `0x0/0x100`。日文计数为 `0x13:69084, 0x23:2124, 0x33:7138, 0x43:16265`，extra mask 为 `0x0:91548, 0x100:3063`；EN 计数为 `0x13:69928, 0x23:2125, 0x33:7200, 0x43:16305`，extra mask 为 `0x0:92492, 0x100:3066`。`0x100` 仍不改变 `KEY.0x5B` 的存储类型。
 
-survey JSON 现在输出 `TrackFlagExtra*` 交叉聚合。`0x100` 出现在 JP/EN 的 123/124 个场景；base 分布为 `0x13=1980/1983`、`0x23=177/177`、`0x33=51/51`、`0x43=855/855`。按 track type 计数，主要为 `5(RotateZ)=851/851`、`24(AlphaOrOpacity)=468/468`、`7(ScaleY)=438/438`、`6(ScaleX)=379/379`、`18(PrimaryImageVariantIndexCandidate)=174/174`。按 key value type 计数，`0x100` 下 JP/EN 为 Float32 `6785/6794` keys、PackedAngleCandidate `3316/3316` keys、Int32 `634/634` keys、Bool `61/61` keys；这再次说明 extra mask 不改变 value storage。
+survey JSON 现在输出 `TrackFlagExtra*` 交叉聚合。`0x100` 出现在 JP/EN 的 123/124 个场景；base 分布为 `0x13=1980/1983`、`0x23=177/177`、`0x33=51/51`、`0x43=855/855`。按 track type 计数，主要为 `5(RotateZ)=851/851`、`24(MaterialAlpha)=468/468`、`7(ScaleY)=438/438`、`6(ScaleX)=379/379`、`18(PrimaryImageVariantIndexCandidate)=174/174`。按 key value type 计数，`0x100` 下 JP/EN 为 Float32 `6785/6794` keys、PackedAngleCandidate `3316/3316` keys、Int32 `634/634` keys、Bool `61/61` keys；这再次说明 extra mask 不改变 value storage。
 
 `0x100` 的目标并不全是 CIMG：JP/EN 中 CIMG target 为 1818/1821 条 track，非 CIMG target 为 1245/1245；初始 display=false 仅 214/214。animation 名称也覆盖 `Loop`、`Action`、`TrackSkip_Loop`、`loop_SSS_Plus`、`AdvertiseLoop`、`Action_Wait*`、`DressChange` 等 UI/loop/action 混合上下文。因此当前只能把 `0x100` 记录为 raw extra mask；不能命名为 action-local 或 special-effect flag。type 28 在 full survey 中扩展到 JP/EN 各 29 条 track、31 个 key，分布在 9 个场景，全部有 illumination alpha 初始通道且至少一个 key 匹配；仍按 `IlluminationAlphaCandidate` 保留，不提升为已确认渲染 alpha 规则。
 
@@ -125,9 +125,15 @@ survey JSON 现在输出 `TrackFlagExtra*` 交叉聚合。`0x100` 出现在 JP/E
 
 `SbPlayerMO_SetLayerEnabled` (`sub_896560`) 是 layer 开关 API；`SbPlayerMO_SetAnimationEnabled` (`sub_8967A0`) 写入 `Layer+0x28 enabled[animation]`；`SbPlayerMO_SetAnimationRepeat` (`sub_896680`) 写入 `Layer+0x2C repeat[animation]`；`SbPlayerMO_SetAnimationTime` (`sub_896710`) 写入 `Layer+0x24 time[animation]`。设计查看器的 `sub_40B520` 选择动画时正是启用目标 animation、关闭其它 animation、设置 repeat 并把 time seek 到 `0.0`。这些 API 不是设计查看器专用：xref 中 `SetLayerEnabled` 有 102 处引用/42 个 caller，`SetAnimationEnabled` 有 93 处引用/46 个 caller。例如 `SurfboardWrapper_EnableAnimationAtTime` (`sub_5C9440`，536 处引用/261 个 caller) 这个通用 helper 会启用逻辑 animation 并设置时间；`SbMMRasWrapper_Update` (`sub_60A850`) 内有 9 处调用该 helper，用状态帧推进 Ras 的角色动画。
 
+2026-05-31 复核播放/切换时的 reset 行为：`SetAnimationEnabled` 最终只到 `sub_7D1A30` 写 enabled byte，`SetAnimationRepeat` 到 `sub_7D1A00` 写 repeat byte，`SetAnimationTime` 到 `sub_7D1AE0` clamp/wrap 后写 time float；这些 setter 本身没有重置 cast transform、display、图片 slot、颜色或 alpha。真正的复位在 `Layer_UpdateActiveAnimations` 每帧发生：它对每个 cast 先调用 `Cast_ResetAnimatedFields` (`sub_7D2C70`)，把上一帧被动画写脏的字段恢复到 cast/static record 或静态 fallback（例如 transform、scale、display `this+0x168`、material/illumination color、vertex color、primary/secondary image slot 等），随后才遍历当前 enabled 的 animation 并调用 `Cast_EvaluateMotionTracks`。因此运行时模型是“每帧恢复静态值，再叠加所有当前仍启用的 animation”，不是播放结束后永久保留上一帧写入值。
+
+这个 reset 结论解释了 `Change_*` 的持久表现：只要上层没有关闭 `Change_Fashion/Position/Accessory`，它们会在每帧复位之后再次按当前状态帧写回服装/饰品/站位状态，所以播放或切换 `Action_*` 不会抹掉这些状态。反过来，如果上层像设计查看器 `sub_40B520` 那样切换时显式关闭其它 animation，只留下一个目标 animation enabled，那么被关闭的 `Change_*` 不会再参与叠加；它曾写过的字段会在下一次 layer update 的 `sub_7D2C70` 中恢复为静态/fallback 状态。通用 helper `sub_5C9440` 与 Ras wrapper `sub_609E20/sub_60A850` 则是启用并 seek 指定逻辑 animation，不会自动禁用其它状态层。
+
 `AnimationContainer_BuildMotionLookup` (`sub_7DC3B0`) 在 layer 初始化时建立 `castIndex x animationIndex` lookup：运行时 `ANIM+0x200` 是 motion 数，`ANIM+0x204` 是 `MOT` 表指针，每条 `MOT` 的前 2 字节目标节点索引用于把 motion 绑定到 cast。`ANIM+0x208` 被复制为 duration/default end frame，供 `Layer_SetAnimationTime` wrap/clamp；`ANIM+0x20C` 被复制为 default repeat flag。静态 `ANIM.0x56` 因而是播放 duration/end-frame 候选，`ANIM.0x5F` 可提升为 default repeat flag；`ANIM.0x50` 仍按 raw/declared motion count 处理，因为 full survey 中还有一个 raw mismatch。
 
 `Cast_EvaluateMotionTracks` 为每条 `TRK` 建立目标字段表并调用 `Cast_EvaluateTrack` (`sub_7D4F50`) 求值。普通 track 按 `TRK+0x1C` 选择标量/向量求值，写入目标对象字段；`TRK+0x18` 继续对应 key value storage/interpolation 分支。
+
+`type 12/13` 分别写入 cast 当前宽高 `this+0xD8/+0xDC`。`Cast_ResetAnimatedFields` (`sub_7D2C70`) 会把它们恢复到静态 CIMG 宽高；随后 `sub_7D6550/sub_7D8830` 构建普通 CIMG 顶点时，按 `currentWidth/staticWidth`、`currentHeight/staticHeight` 同步缩放静态 pivot，再用动态宽高和缩放后的 pivot 生成矩形。Ras `Action_Joy3 -> kirakira_eye` 在 frame `11..34` 将高度从 `65` 切到 `26`，因此 PNG renderer 和 Viewer 不能只替换高度并保留静态 pivot；共享几何实现需要同步缩放 pivot。
 
 `type 11(Display)` 是运行时可见性轨道。`sub_7D30C0` 将它写到 cast 对象 `this+0x168`，并置 `this+0x11D` dirty；`sub_7D1FC0` 在遍历节点树时把父 cast 的最终可见字段 `this+0xD0` 传给子 cast；`Cast_UpdateRenderState` (`sub_7D4720`) 再组合本节点 display 与父级状态。组合规则是：`this+0x168` 为 0 时最终 `this+0xD0=0`；`this+0x168` 为 1 且 cast/static record `+0x218` 为 1 时，最终值继承父节点可见性；`+0x218` 为 0 时，本节点 local true 直接使最终值为 1。因此 `Display` 可从候选提升为已确认的本节点显示开关；它不是图片变体索引。
 
@@ -181,7 +187,7 @@ type 18 primary 目标节点的 CREF count 分布覆盖 1..16，其中 2、3、4
 | 21 | `MaterialColorRCandidate` | 4 | 4 | `0x13` / Float32 | `0,0.902` | `Action_Joy3 -> hart_*`，值与 `TRS2.0x37` 材质色 R 通道归一化结果一致。 |
 | 22 | `MaterialColorGCandidate` | 4 | 4 | `0x13` / Float32 | `0,0.914` | `Action_Joy3 -> hart_*`，值与材质色 G 通道一致。 |
 | 23 | `MaterialColorBCandidate` | 4 | 4 | `0x13` / Float32 | `0,0.816` | `Action_Joy3 -> hart_*`，值与材质色 B 通道一致。 |
-| 24 | `AlphaOrOpacity` | 58 | 168 | `0x13` / Float32 | `0..1` | Fade/effect/dress 相关透明度候选。 |
+| 24 | `MaterialAlpha` | 58 | 168 | `0x13` / Float32 | `0..1` | 写入 `MaterialColor.A`；Fade/effect/dress 等通过 effective opacity 生效。 |
 | 25 | `IlluminationColorRCandidate` | 4 | 4 | `0x13` / Float32 | `0,0.875` | `Action_Joy3 -> hart_*`，值与 `TRS2.0x38` illumination R 通道一致。 |
 | 26 | `IlluminationColorGCandidate` | 4 | 4 | `0x13` / Float32 | `0` | illumination G 通道候选。 |
 | 27 | `IlluminationColorBCandidate` | 4 | 4 | `0x13` / Float32 | `0,1` | illumination B 通道候选。 |
@@ -207,7 +213,7 @@ full survey 现在把 `KEY.0x5B type 0x0B` 作为 packed-angle candidate 单独�
 | surfboard | 16,265 | 45,602 | `3:84, 4:81, 5:16100` | `3:84, 4:81, 5:45437` | 1,092 | `-75548..83740` |
 | surfboard_EN | 16,305 | 45,690 | `3:84, 4:81, 5:16140` | `3:84, 4:81, 5:45525` | 1,092 | `-75548..83740` |
 
-两组 top raw 值排序一致：`0` 最多（23,523 / 23,573 keys），其次是 `910/-910`（约 `+/-5 deg`）、`546/-546`（约 `+/-3 deg`）、`1820/-1820`（约 `+/-10 deg`）等。raw 值超出 16-bit signed 范围，因此当前只确认它是按 signed integer raw 参与候选角度换算；是否允许多圈、是否有运行时 wrap/clamp 仍 unknown。
+两组 top raw 值排序一致：`0` 最多（23,523 / 23,573 keys），其次是 `910/-910`（约 `+/-5 deg`）、`546/-546`（约 `+/-3 deg`）、`1820/-1820`（约 `+/-10 deg`）等。raw 值可超出 16-bit signed 范围；对抗校验后按 signed binary angle 比例换算，渲染矩阵不先做 16-bit 截断，超过一圈的值按同一公式参与旋转。
 
 Otohime 补充了 type 21/22/23 的候选证据：`Change_Fashion -> momo_circle_*` 的 17 个 key 值与这些节点 `TRS2.0x37` 的材质色 RGB 通道对应，部分通道相差一个 8-bit step；同一批节点的 illumination RGB 为 0，type 25/26/27 也全为 0。当前颜色字段按 4 字节 `A,R,G,B` 候选解释，JSON/Markdown 中的 `Hex` 为 `#AARRGGBB`。
 
@@ -220,11 +226,11 @@ full survey 现在把颜色相关 track 与目标节点初始 `TRS2` 颜色通�
 
 按 track type 看，JP/EN 的初始通道匹配分别覆盖 `21:920/932`、`22:914/928`、`23:919/935`、`25:866/874`、`26:860/868`、`27:863/871`、`28:29/29` 条 track。type 28 在当前 full survey 中全部匹配 illumination alpha 初始值。
 
-type 24 现在有单独的 Alpha/Opacity 证据表。它与 `TRS2.0x37` 的材质 alpha 有匹配证据，但不是同一个静态字段：Ras 58 条 type 24 中有 56 条至少一个 key 按 survey 初始 alpha 匹配规则命中，Chiffon 为 34/34，Otohime 为 37/37；同时它也作用于无 CIMG 的 root/null/control 节点，例如 `FadeIn1/FadeOut1 -> *_root`。当前仅将 type 24 作为“目标有效 opacity/alpha 动画通道”候选处理，材质 alpha 是默认/初始值来源候选之一。
+type 24 现在有单独的 MaterialAlpha 证据表。它与 `TRS2.0x37` 的材质 alpha 有匹配证据：Ras 58 条 type 24 中有 56 条至少一个 key 按 survey 初始 alpha 匹配规则命中，Chiffon 为 34/34，Otohime 为 37/37；同时它也作用于无 CIMG 的 root/null/control 节点，例如 `FadeIn1/FadeOut1 -> *_root`。参考运行时将 type 24 写入 `MaterialColor.A`，因此当前 renderer 将它作为 material alpha / effective opacity 动画通道处理。
 
 PNG renderer / Viewer 当前按节点树累计 effective opacity：本节点 alpha 与父级 effective opacity 相乘，因此无 CIMG 的控制节点也能通过 type 24 或 material alpha 使整条子树透明。
 
-full survey 中 type 24 的 key value 也全部在 `0..1`，所有目标节点都有 `TRS2.0x37` material alpha；但初始 alpha 匹配不是全覆盖，因此继续按独立 opacity/alpha 通道候选处理：
+full survey 中 type 24 的 key value 也全部在 `0..1`，所有目标节点都有 `TRS2.0x37` material alpha；初始 alpha 匹配不是全覆盖，说明它可以从 bind alpha 动画到其它 opacity：
 
 | Survey | Type 24 tracks | Keys | With material alpha | Initial alpha matched | CIMG targets | display=false targets | Key out-of-range |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -239,9 +245,9 @@ full survey 中 type 24 的 key value 也全部在 `0..1`，所有目标节点�
 | --- | --- |
 | `0x5A` | key frame。 |
 | `0x5B` | key value；类型由 track flags 决定。 |
-| `0x5C` | interpolation 候选。 |
-| `0x5D` | tangent in 或入斜率候选。 |
-| `0x5E` | tangent out 或出斜率候选。 |
+| `0x5C` | interpolation selector：`0` hold，`2` Hermite，其它非零值 linear。 |
+| `0x5D` | Hermite incoming tangent；由下一 key 作为段入斜率使用。 |
+| `0x5E` | Hermite outgoing tangent；由当前 key 作为段出斜率使用。 |
 
 Ras 中 `0x5C` 只观察到三类值：
 
@@ -293,7 +299,7 @@ Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type
 | `Change_Accessory` | `accessory_L_fruittea`、`tray`、`coffecup`、`bread` 等 | `11(Display)` | Ras 中这些饰品/道具节点只观察到 display 轨道。 |
 | `Mouth_Wait1` | `koukando01_mouth` | `12`、`13`、`18`，并带 `0/1/6/7` | Ras 中嘴部节点带 mouth-shape 候选、primary image variant index 候选和局部 transform 候选轨道。 |
 | `Action_Wait1` | `Ras_null`、`tail`、服饰飘带、身体部件等 | 主要 `5(RotateZ)`，并带 `0/1/6/7/11` | Ras 中以旋转候选轨道为主，同时有平移、缩放和 display 轨道。 |
-| `DressChange` | `Ras_root`、`Ras_null`、身体/服饰部件 | 包含动作动画同类 transform track，并含 `24(AlphaOrOpacity)` | Ras 中同时出现 transform 与 alpha/opacity 候选轨道；是否存在额外状态机仍未确认。 |
+| `DressChange` | `Ras_root`、`Ras_null`、身体/服饰部件 | 包含动作动画同类 transform track，并含 `24(MaterialAlpha)` | Ras 中同时出现 transform 与 material alpha 轨道；是否存在额外状态机仍未确认。 |
 
 ## 状态轨道识别
 
@@ -306,7 +312,7 @@ Ras 的非零 tangent 候选主要集中在 type 5 `RotateZ`（778 个）、type
 
 ## 状态/开关轨道摘要
 
-当前输出器会把 `11(Display)`、`18(PrimaryImageVariantIndexCandidate)`、`19(SecondaryImageVariantIndexCandidate)`、`24(AlphaOrOpacity)` 汇总成状态轨道表。Ras 样本没有 type 19，因此下表只出现三类。
+当前输出器会把 `11(Display)`、`18(PrimaryImageVariantIndexCandidate)`、`19(SecondaryImageVariantIndexCandidate)`、`24(MaterialAlpha)` 汇总成状态轨道表。Ras 样本没有 type 19，因此下表只出现三类。
 
 Ras 中三类状态候选总量：
 
@@ -314,11 +320,11 @@ Ras 中三类状态候选总量：
 | ---: | --- | ---: | ---: |
 | 11 | `Display` | 745 | 1,185 |
 | 18 | `PrimaryImageVariantIndexCandidate` | 81 | 854 |
-| 24 | `AlphaOrOpacity` | 58 | 168 |
+| 24 | `MaterialAlpha` | 58 | 168 |
 
 重点动画中的状态轨道：
 
-| Animation | Display | Primary variant | Secondary variant | Alpha/Opacity | 观察 |
+| Animation | Display | Primary variant | Secondary variant | Material alpha | 观察 |
 | --- | ---: | ---: | ---: | ---: | --- |
 | `Change_Fashion` | 105 | 6 | 0 | 0 | Ras 中服饰组主要带 display 轨道，少量节点带 type 18 primary image slot 轨道。 |
 | `Change_Accessory` | 8 | 0 | 0 | 0 | Ras 中这 8 条状态轨道全是 display；未见 type 18/19/24。 |
@@ -330,6 +336,12 @@ Ras 中三类状态候选总量：
 `PrimaryImageVariantIndexCandidate` 的 key value 在 Ras 中全部通过 primary CREF 组范围检查。结合已核对的分组范围检查逻辑和运行时 slot 写入逻辑，type 18 按 primary CREF 组范围理解；type 19 按 secondary CREF 组范围理解。例如 `forearm_L01` 的 values 为 `0,1,2`，对应 primary image refs；多个嘴部节点的 type 18 key 落在 2-4 条 primary 口型/表情 image refs 范围内。full survey 中 `CIMG.0x45` 与最早 key 只是高比例对齐，不是全覆盖关系，因此状态轨道摘要不把 `0x45` 当作当前/选中状态来源。
 
 Ras 的服饰/饰品状态由“启用对应 animation + seek 到状态帧”驱动，而不是由 type 18/19 单独驱动。`Change_Fashion` 的 type 11 display keys 在 frame `0..3` 上切换 plain/uniform/gorgeous 等部件；`Change_Accessory` 同样用 frame `0..3` 切换手部道具，`tray` 在 frame 1 与 frame 3 为 true，按 step/hold 在 frame 2 也保持显示。Ras wrapper 的 `sub_609E20` 会刷新 logical animation `1/2/3/4`，在 Ras 样本中对应 `Change_Fashion/Change_Position/Change_Accessory/Effect_Heart1`；其中服饰 frame 来自 `this+0x198` 经 `dword_F40714` 指向对象的 `+0x38` 表 record `+0x44` 映射后的值或 `this+0x228` override，饰品 frame 直接来自 `this+0x1E8`。随后 `Layer_UpdateActiveAnimations` 把该时间传给 `Cast_EvaluateMotionTracks`，最终每个 cast 的 type 11 写入可见性。
+
+`Change_*` 和 `Action_*` 的差异不只是名称。当前 6 个标准角色样本（Chiffon/Milk/Otohime/Ras/Salt/Shama，gage 的 `DressChange` 特例不计入标准角色动作组）中，`Change_Fashion`、`Change_Position`、`Change_Accessory` 都位于固定低 animation index：`1/2/3`，随后是 `Effect_Heart1`，再从 `Action_Wait1` 开始进入动作/口型序列。`Change_Fashion` 与 `Change_Accessory` 合计 665 条 track，其中 593 条是 `11(Display)`；key frame 基本集中在 `0..3`，Otohime 少量非 display 状态/颜色轨道覆盖 `-1..4`，Salt 饰品扩展到 `0..6`。这些轨道用于选择服装、配饰、手持道具以及少量图块/颜色状态。`Change_Position` 合计 29 条 track，集中在 root/body 的 `0/1/6/7` transform 状态，frame `0..5`，更像基础站位/比例状态。
+
+同一批标准角色里，`Action_*` 合计 55,024 条 track，主导类型是 `5(RotateZ)`、`0/1(TranslateX/Y)`、`6/7(ScaleX/Y)`，时间轴覆盖 `-20..227` 一类动作范围；它们也有 2,030 条 `11(Display)`、623 条 `24(MaterialAlpha)` 和 381 条 `18(PrimaryImageVariantIndexCandidate)`，但这些主要服务动作局部特效、表情或姿态切换，不是服装/配饰选择。按 `(node, track type)` 交叉，`Change_Fashion/Accessory` 的 631 个状态目标中只有 22 个被任一 `Action_*` 的同类状态轨道覆盖；即使有 366 个 Change 状态节点也被 Action 的其它 transform 轨道触达，Action 通常不会写回同一 display/image/color 状态。因此实机上表现为：`Change_*` 被启用并 seek 到某个状态帧后，会在每帧 reset 之后作为基础状态重新叠加；切换或播放 `Action_*` 只覆盖它自己写到的字段，不会自动把服装或手持物恢复到初始文件状态。只有当上层显式禁用对应 `Change_*` 时，这些状态才会在下一次 layer update 中随 dirty reset 回落到静态/fallback 值。
+
+`DressChange` / `Action_Change` 不等同于这类持久状态选择。它们的 track 分布接近动作动画，覆盖大量 transform，时间轴常到 `200+` frame，并包含 display、image variant 或 alpha 作为换装过程中的过渡效果。当前应把 `Change_Fashion/Position/Accessory` 理解为可长期启用的逻辑状态层，把 `Action_*` / `DressChange` 理解为动作或过渡层；Viewer 若要复现实机角色外观，应在播放 Action 时叠加当前 `Change_*` 状态帧，而不是只播放一个互斥动画。
 
 ## 命名模式
 

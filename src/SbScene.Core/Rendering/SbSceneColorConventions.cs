@@ -6,6 +6,8 @@ public static class SbSceneColorConventions
 {
     public static RgbaColor OpaqueWhite { get; } = new(byte.MaxValue, byte.MaxValue, byte.MaxValue, byte.MaxValue);
 
+    public static RgbaColor OpaqueBlack { get; } = new(byte.MinValue, byte.MinValue, byte.MinValue, byte.MaxValue);
+
     public static RgbaColor InterpolateVertexColor(IReadOnlyList<RgbaColor> vertexColors, double u, double v)
     {
         if (vertexColors.Count < 4)
@@ -15,8 +17,8 @@ public static class SbSceneColorConventions
 
         var x = ClampUnit(u);
         var y = ClampUnit(v);
-        var top = Lerp(vertexColors[0], vertexColors[1], x);
-        var bottom = Lerp(vertexColors[3], vertexColors[2], x);
+        var top = Lerp(vertexColors[0], vertexColors[2], x);
+        var bottom = Lerp(vertexColors[1], vertexColors[3], x);
         return Lerp(top, bottom, y);
     }
 
@@ -35,9 +37,9 @@ public static class SbSceneColorConventions
         var illuminationA = illumination.A / 255.0;
 
         return new SbSceneLitColor(
-            ClampByte(textureR * (material.R / 255.0) * vertexR + illumination.R * illuminationA * vertexR),
-            ClampByte(textureG * (material.G / 255.0) * vertexG + illumination.G * illuminationA * vertexG),
-            ClampByte(textureB * (material.B / 255.0) * vertexB + illumination.B * illuminationA * vertexB),
+            ClampByte(textureR * (material.R / 255.0) * vertexR + illumination.R * illuminationA),
+            ClampByte(textureG * (material.G / 255.0) * vertexG + illumination.G * illuminationA),
+            ClampByte(textureB * (material.B / 255.0) * vertexB + illumination.B * illuminationA),
             ClampByte(textureA * (vertex.A / 255.0)));
     }
 

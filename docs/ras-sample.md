@@ -167,9 +167,9 @@ TRS2 字段统计：
 | --- | --- | --- |
 | `Change_Fashion` | `plain_apron_ribon`、`uniform_cap_L`、`plain_onepiece_body`、`gorgeous_L_boots_*` | 114 条 track 中 105 条为 `11(Display)`；display 轨道集中在服饰部件，少量节点带 `18(PrimaryImageVariantIndexCandidate)`、`0/1(Translate)`、`5(RotateZ)` 轨道。 |
 | `Change_Accessory` | `accessory_L_fruittea`、`accessory_L_coffe`、`accessory_L_kettle`、`tray`、`coffecup`、`bread`、`pancake` | 8 条 track 全部为 `11(Display)`，构成饰品 display 状态表。 |
-| `Mouth_Wait1` | `koukando01_mouth`、`ef_action` | 嘴部节点含 `12(MouthShapeA)`、`13(MouthShapeB)`、`18(PrimaryImageVariantIndexCandidate)` 和局部 transform；`ef_action` 使用 `11(Display)`。 |
+| `Mouth_Wait1` | `koukando01_mouth`、`ef_action` | 嘴部节点含 `12(ImageWidthCandidate)`、`13(ImageHeightCandidate)`、`18(PrimaryImageVariantIndexCandidate)` 和局部 transform；`ef_action` 使用 `11(Display)`。 |
 | `Action_Wait1` | `Ras_null`、`tail`、`plain_apron_ribon*`、`top03`、`hair_back_*` | 以 `5(RotateZ)` 为主，并包含 `0/1(Translate)`、`6/7(Scale)` 和部分 `11(Display)`。 |
-| `DressChange` | `Ras_root`、`Ras_null`、身体与服饰部件 | 包含动作动画同类 transform track，另含 `24(AlphaOrOpacity)`；只记录为 transform 与 alpha/opacity 候选轨道共现。 |
+| `DressChange` | `Ras_root`、`Ras_null`、身体与服饰部件 | 包含动作动画同类 transform track，另含 `24(MaterialAlpha)`；记录为 transform 与 material alpha 轨道共现。 |
 
 ## Ras 服饰/饰品运行时链路
 
@@ -227,7 +227,7 @@ Ras 的渲染校验样本是 `plain_leg_R1`：静态 `TRS2.0x32 raw=5461` 解码
 | 21 | `MaterialColorRCandidate` | 4 | 4 | `0,0.902` | `Action_Joy3 -> hart_*`，匹配 `TRS2.0x37` 材质色 R 通道候选。 |
 | 22 | `MaterialColorGCandidate` | 4 | 4 | `0,0.914` | `Action_Joy3 -> hart_*`，匹配材质色 G 通道候选。 |
 | 23 | `MaterialColorBCandidate` | 4 | 4 | `0,0.816` | `Action_Joy3 -> hart_*`，匹配材质色 B 通道候选。 |
-| 24 | `AlphaOrOpacity` | 58 | 168 | `0..1` | Fade/effect/dress 相关透明度候选。 |
+| 24 | `MaterialAlpha` | 58 | 168 | `0..1` | 写入 `MaterialColor.A` 并通过父链 effective opacity 生效。 |
 | 25 | `IlluminationColorRCandidate` | 4 | 4 | `0,0.875` | 匹配 `TRS2.0x38` illumination R 通道候选。 |
 | 26 | `IlluminationColorGCandidate` | 4 | 4 | `0` | illumination G 通道候选。 |
 | 27 | `IlluminationColorBCandidate` | 4 | 4 | `0,1` | illumination B 通道候选。 |
@@ -235,7 +235,7 @@ Ras 的渲染校验样本是 `plain_leg_R1`：静态 `TRS2.0x32 raw=5461` 解码
 
 Ras heart 节点给出了颜色轨道的第一组强证据：`hart_R_01/hart_L_01` 的材质色为 `#FFE6E9D0`（按 `A,R,G,B` 候选为 `255,230,233,208`），归一化后约为 `0.902/0.914/0.816`，正好对应 type 21/22/23；`hart_R_02/hart_L_02` 的 illumination 色为 `#FFDF00FF`，对应 type 25/26/27/28 的 `0.875/0/1/1`。
 
-type 24 的 Alpha/Opacity 表显示 Ras 中 58 条 track、168 个 key，其中 51 条目标是 CIMG 节点、34 条目标初始 display=false；56/58 条 track 至少有一个 key 按 survey 初始 alpha 匹配规则命中。`FadeIn1/FadeOut1` 作用在无 CIMG 的 `Ras_root/Ras_null`，而 `Effect_Heart1` 的 13 条目标全是 CIMG 且初始材质 alpha 为 0。当前仅将 type 24 作为有效 opacity/alpha 动画通道候选处理，不把它命名为单纯的静态材质 alpha 字段。
+type 24 的 MaterialAlpha 表显示 Ras 中 58 条 track、168 个 key，其中 51 条目标是 CIMG 节点、34 条目标初始 display=false；56/58 条 track 至少有一个 key 按 survey 初始 alpha 匹配规则命中。`FadeIn1/FadeOut1` 作用在无 CIMG 的 `Ras_root/Ras_null`，而 `Effect_Heart1` 的 13 条目标全是 CIMG 且初始材质 alpha 为 0。运行时将 type 24 写入 `MaterialColor.A`，再由父链乘法形成 effective opacity。
 
 `KEY.0x5C` 插值候选分布：
 
@@ -249,7 +249,7 @@ type 24 的 Alpha/Opacity 表显示 Ras 中 58 条 track、168 个 key，其中 
 
 ## 状态/开关轨道表
 
-主 Markdown 报告现在会输出“状态/开关轨道摘要”，从 `Display`、`PrimaryImageVariantIndexCandidate`、`SecondaryImageVariantIndexCandidate`、`AlphaOrOpacity` 生成可读状态表。Ras 样本没有 type 19 secondary variant 轨道。
+主 Markdown 报告现在会输出“状态/开关轨道摘要”，从 `Display`、`PrimaryImageVariantIndexCandidate`、`SecondaryImageVariantIndexCandidate`、`MaterialAlpha` 生成可读状态表。Ras 样本没有 type 19 secondary variant 轨道。
 
 Ras 总量：
 
@@ -257,7 +257,7 @@ Ras 总量：
 | ---: | --- | ---: | ---: |
 | 11 | `Display` | 745 | 1,185 |
 | 18 | `PrimaryImageVariantIndexCandidate` | 81 | 854 |
-| 24 | `AlphaOrOpacity` | 58 | 168 |
+| 24 | `MaterialAlpha` | 58 | 168 |
 
 关键结论：
 
@@ -310,18 +310,18 @@ YABX descriptor 也新增了 schema-to-object 使用证据：例如 `stevia::Dat
 
 `CIMG.0x45` 只有 8 个 image cast 非零，全部能指向有效引用；例如 `kirakira_eye` 的 `(4,1)/(2,0)` 可索引到 primary `0:47` 和 secondary `0:42`，`forearm_L02` 的 `(3,0)/(2,0)` 可索引到 `3:43`。因此当前确认 `0x45` 是 primary/secondary 组内 crop reference index，并在运行时作为 fallback/default slot index；它仍不能命名为当前或选中状态。
 
-`CIMG.0x48` 已从 raw value 进一步拆成 bit 分布，并在主报告里输出节点 flags、节点组、初始 display、multi/secondary CREF、非零 `0x45` index 和 bit 共现表。后续 loader/xref 复核显示该字段不是 CIMG 私有 flags，而是跨 `CNUM/CSLI/TEX/SLIC` 等资源复用的 packed state word。Ras 中 bit 15 在 304 个 image cast 上全部设置；后续 full survey 显示 bit 15 是高覆盖 CIMG 位但非全局必有，因此不命名语义。bit 0 只出现在 9 个 `04_present_eff`、`*_add`、`hart_*` 节点上，且是 bit 22 的子集；这只作为名称/分组相关性，不确认混合或渲染语义。bit 20、21、22、23 仍只记录为 CIMG 样本高位共现关系。
+`CIMG.0x48` 已从 raw value 进一步拆成 packed state 分布，并在主报告里输出节点 flags、节点组、初始 display、multi/secondary CREF、非零 `0x45` index 和 bit 共现表。后续 loader/xref 复核显示该字段不是 CIMG 私有 flags，而是跨 `CNUM/CSLI/TEX/SLIC` 等资源复用的 packed state word。对 CIMG draw 路径，低 4 位是 draw/blend mode，mode `1` 是 additive/effect；`0x10/0x20` 是 flipU/flipV，`0xC0` 是 UV permutation，`0x7800` 是 surface mode。Ras 中 bit 15 在 304 个 image cast 上全部设置；后续 full survey 显示 bit 15 是高覆盖 CIMG 位但非全局必有，因此不命名语义。bit 20、21、22、23 仍只记录为 CIMG 样本高位共现关系。
 
 | Bit | Image casts | Ras 观察 |
 | ---: | ---: | --- |
-| 0 | 9 | `04_present_eff`、`04_present_heart_*_add`、`hart_R_01`、`hart_L_01` 等节点名；只作样本定位，不确认运行时混合语义。 |
+| 0 | 9 | 这些 CIMG 的 low nibble draw mode 为 `1`，运行时按 additive/effect blend；节点名只作样本定位。 |
 | 15 | 304 | 全部 CIMG 都设置。 |
 | 20 | 121 | 常见于 hair/clothes/body 节点；117 个与 bit 23 共现。 |
 | 21 | 6 | 只覆盖少量 tail/gorgeous/plain 特例。 |
 | 22 | 182 | 常见于 expression/body/effect 节点。 |
 | 23 | 117 | Ras 内是 bit 20 的子集，常见于 hair/clothes/body 节点；不是全局子集规则。 |
 
-bit 共现重点：`0+22` 为 9，说明 bit 0 在 Ras 内完全落在 bit 22 内；`20+23` 为 117，说明 bit 23 在 Ras 内完全落在 bit 20 内。bit 0 与 multi/secondary CREF、非零 `0x45` index 均无交叉，因此不作为资源选择属性结论；相关节点名只用于样本定位。
+bit 共现重点：`0+22` 为 9，说明 additive/effect draw mode 在 Ras 内完全落在 bit 22 这组高位共现中；`20+23` 为 117，说明 bit 23 在 Ras 内完全落在 bit 20 内。low nibble draw mode 与 multi/secondary CREF、非零 `0x45` index 均无直接交叉，因此不作为资源选择属性结论；相关节点名只用于样本定位。
 
 ## Camera 与 NCAT
 

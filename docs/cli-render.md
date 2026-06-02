@@ -47,7 +47,7 @@ dotnet run --project src/SbScene.Cli -- render `
 - `Action_Wait1`
 - `Mouth_Wait1`
 
-可以追加 `--animation Name@Frame` 覆盖或补充状态；后指定的动画会在默认动画之后应用。
+可以追加 `--anim Name[Frame]` 或旧写法 `--animation Name@Frame` 覆盖或补充状态；也可以用 `--anim #Index[Frame]` 精确指定 animation slot。CLI 会按 scene 中的 animation index 顺序叠加所有启用槽，同一槽多次指定时最后一次 frame 生效；这和 Viewer/运行时的 enabled animation slot 模型一致。
 
 常用选项：
 
@@ -58,7 +58,7 @@ dotnet run --project src/SbScene.Cli -- render `
 - `--high-quality`：等价于 `--sampling bilinear --supersample 4`。
 - `--padding <px>`
 - `--show-hidden`
-- `--render-secondary`
+- `--render-secondary`（兼容旧参数；secondary CREF 只会在 `CIMG.0x48` surface mode 实际启用 secondary stage 时参与运行时渲染）
 
 高清导出示例：
 
@@ -67,13 +67,23 @@ dotnet run --project src/SbScene.Cli -- render `
   "D:\maimai FiNALE (SDEY 1.99.00)\maimai\data\surfboard\MM_CH_Salt\MM_CH_Salt__Salt_00.sbscene" `
   "D:\maimai FiNALE (SDEY 1.99.00)\maimai\data\surfboard\MM_CH_Salt\MM_CH_Salt.svo" `
   --out out\salt-touch1-hq.png `
-  --animation Change_Fashion@0 `
-  --animation Change_Position@0 `
-  --animation Change_Accessory@0 `
-  --animation Action_Touch1@20 `
-  --animation Mouth_Touch1@8 `
+  --anim #1[0] `
+  --anim #2[0] `
+  --anim #3[0] `
+  --anim Action_Touch1[20] `
+  --anim Mouth_Touch1[8] `
   --high-quality
 ```
+
+例如只想指定服装状态和动作帧，可以写：
+
+```powershell
+--anim Change_Fashion[2] --anim Action_Joy3[10]
+```
+
+这会启用 `Change_Fashion` 和 `Action_Joy3` 两个槽；渲染时按 animation index 先应用 selector，再应用更高 index 的动作槽。若两个动画写同一个节点的同一类 track，后 index 的槽会覆盖前 index 的同类状态；未被 Action 覆盖的 `Change_*` 状态会保留在最终渲染状态中。
+
+注意这里的覆盖顺序由 animation slot index 决定，而不是命令行顺序。标准角色样本中 `Change_Fashion` 在 slot 1，`Action_*` 通常在更高 slot，因此动作轨道会覆盖 selector 的同类轨道；如果同一个 slot 在命令行里出现多次，才由最后一次指定的 frame 覆盖前面的 frame。
 
 如果需要更大的 PNG，同时保留抗锯齿，可以组合：
 
@@ -89,4 +99,6 @@ dotnet run --project src/SbScene.Cli -- render `
 
 节点树渲染会沿父链组合 display 和 opacity：父节点最终 hidden 时子节点不绘制；父节点 `TRS2.0x37` material alpha / type 24 alpha 为 0 时，子图片的 effective opacity 也为 0。`--show-hidden` 只绕过 display hidden，不绕过 alpha/opacity。
 
-颜色管线按当前候选语义处理：纹理颜色先乘 `TRS2.0x37` material RGB 和 `TRS2.0x39` 四角顶点色插值，再叠加 `TRS2.0x38` illumination RGB；type 21/22/23、25/26/27/28 动画会分别更新 material / illumination 通道。PNG renderer 还把 `CIMG.0x48` bit 0 作为 additive blend 候选处理，用于 `*_add` 和 Ras `hart_*_01` 这类发光层；这仍是导出渲染约定，不提升为格式字段的已确认语义。
+颜色管线按运行时已确认的路径处理：纹理颜色先乘 `TRS2.0x37` material RGB 和 `TRS2.0x39` 四角顶点色插值，再叠加 `TRS2.0x38` illumination RGB * illumination alpha；type 21/22/23、25/26/27/28 动画会分别更新 material / illumination 通道，type 29..44 会更新四角 vertex color RGBA。PNG renderer 按 `CIMG.0x48` 低 4 位识别 draw/blend mode，mode `1` 使用 additive/effect blend（RGB 累加，alpha 取 max）。
+
+`CIMG.0x48` 的 surface mode 按 `flags & 0x7800` 解码：mode `0` 只使用 primary surface；mode `1` 使用 secondary surface 作为 stage0；mode `2/3/4` 使用 primary stage0 加 secondary stage1 组合。当前标准 6 个角色样本均为 mode `0`，因此带 secondary CREF 的 CIMG 默认不会把 secondary 当独立图层绘制。
