@@ -21,6 +21,8 @@ public sealed class SbSceneRenderOptions
     public bool RenderSecondaryImages { get; init; }
 
     public IReadOnlyList<SbSceneAnimationSelection> Animations { get; init; } = Array.Empty<SbSceneAnimationSelection>();
+
+    public SbSceneRenderBounds? ContentBounds { get; init; }
 }
 
 public enum SbSceneTextureSampling
@@ -32,6 +34,8 @@ public enum SbSceneTextureSampling
 public sealed record SbSceneAnimationSelection(string Name, double Frame)
 {
     public int? Index { get; init; }
+
+    public bool HasExplicitFrame { get; init; }
 }
 
 public readonly record struct RgbaColor(byte R, byte G, byte B, byte A)
@@ -48,6 +52,13 @@ public sealed class SbSceneRenderResult
     public required int CandidateItemCount { get; init; }
 
     public required IReadOnlyList<string> Warnings { get; init; }
+}
+
+public readonly record struct SbSceneRenderBounds(double Left, double Top, double Right, double Bottom)
+{
+    public double Width => Right - Left;
+
+    public double Height => Bottom - Top;
 }
 
 public static class SbScenePngRenderer
@@ -75,17 +86,79 @@ public static class SbScenePngRenderer
             throw new ArgumentOutOfRangeException(nameof(options), "Supersample factor must be between 1 and 8.");
         }
 
-        var warnings = new List<string>();
-        var warningSet = new HashSet<string>(StringComparer.Ordinal);
-        void AddWarning(string warning)
+        var warningState = new RenderWarningState();
+        var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animations, warningState.Add);
+        return Render(scene, svoPath, frameState, options, warningState);
+    }
+
+    public static SbSceneRenderResult Render(
+        SbSceneFile scene,
+        string svoPath,
+        SbSceneAnimationFrameState frameState,
+        SbSceneRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentException.ThrowIfNullOrWhiteSpace(svoPath);
+        ArgumentNullException.ThrowIfNull(frameState);
+
+        options ??= new SbSceneRenderOptions();
+        if (options.Scale <= 0 || double.IsNaN(options.Scale) || double.IsInfinity(options.Scale))
         {
-            if (warningSet.Add(warning))
-            {
-                warnings.Add(warning);
-            }
+            throw new ArgumentOutOfRangeException(nameof(options), "Render scale must be a positive finite number.");
         }
 
-        var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animations, AddWarning);
+        if (options.Padding < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Render padding must be non-negative.");
+        }
+
+        if (options.Supersample is < 1 or > 8)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "Supersample factor must be between 1 and 8.");
+        }
+
+        return Render(scene, svoPath, frameState, options, new RenderWarningState());
+    }
+
+    public static SbSceneRenderBounds ComputeContentBounds(
+        SbSceneFile scene,
+        SbSceneAnimationFrameState frameState,
+        SbSceneRenderOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(frameState);
+
+        options ??= new SbSceneRenderOptions();
+        var nodeStates = frameState.Nodes;
+        var imageStates = frameState.ImageCasts;
+        var parentByNode = SbSceneRenderTree.BuildParentMap(scene.Surfboard.Nodes);
+        var visibleNodes = SbSceneRenderTree.BuildFinalVisibility(
+            scene.Surfboard.Nodes,
+            parentByNode,
+            index => nodeStates[index].Display,
+            options.ShowHiddenNodes);
+        var effectiveOpacities = SbSceneRenderTree.BuildEffectiveOpacity(
+            scene.Surfboard.Nodes,
+            parentByNode,
+            index => nodeStates[index].MaterialA / 255.0);
+        var effectiveColors = SbSceneRenderTree.BuildEffectiveColors(
+            scene.Surfboard.Nodes,
+            parentByNode,
+            index => nodeStates[index].MaterialColor,
+            index => nodeStates[index].IlluminationColor);
+        var worldTransforms = BuildWorldTransforms(scene.Surfboard.Nodes, nodeStates, parentByNode);
+        var layers = BuildRenderLayers(scene, nodeStates, imageStates, visibleNodes, effectiveOpacities, effectiveColors, worldTransforms, options.RenderSecondaryImages);
+        var bounds = ComputeBounds(layers);
+        return new SbSceneRenderBounds(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+    }
+
+    private static SbSceneRenderResult Render(
+        SbSceneFile scene,
+        string svoPath,
+        SbSceneAnimationFrameState frameState,
+        SbSceneRenderOptions options,
+        RenderWarningState warningState)
+    {
         var nodeStates = frameState.Nodes;
         var imageStates = frameState.ImageCasts;
 
@@ -106,21 +179,23 @@ public static class SbScenePngRenderer
             index => nodeStates[index].IlluminationColor);
         var worldTransforms = BuildWorldTransforms(scene.Surfboard.Nodes, nodeStates, parentByNode);
         var layers = BuildRenderLayers(scene, nodeStates, imageStates, visibleNodes, effectiveOpacities, effectiveColors, worldTransforms, options.RenderSecondaryImages);
-        var contentBounds = ComputeBounds(layers);
+        var contentBounds = options.ContentBounds is { } boundsOverride
+            ? RenderRect.FromEdges(boundsOverride.Left, boundsOverride.Top, boundsOverride.Right, boundsOverride.Bottom)
+            : ComputeBounds(layers);
         var width = Math.Max(1, (int)Math.Ceiling((contentBounds.Width + options.Padding * 2) * options.Scale));
         var height = Math.Max(1, (int)Math.Ceiling((contentBounds.Height + options.Padding * 2) * options.Scale));
         var renderScale = options.Scale * options.Supersample;
         var renderWidth = width * options.Supersample;
         var renderHeight = height * options.Supersample;
         var output = CreateImage(renderWidth, renderHeight, options.BackgroundColor);
-        var resources = RenderResourceResolver.Load(scene, svoPath, AddWarning);
+        var resources = RenderResourceResolver.Load(scene, svoPath, warningState.Add);
         var offsetX = options.Padding - contentBounds.Left;
         var offsetY = options.Padding - contentBounds.Top;
         var rendered = 0;
 
         foreach (var layer in layers)
         {
-            var crop = resources.ResolveCrop(layer.Reference, AddWarning);
+            var crop = resources.ResolveCrop(layer.Reference, warningState.Add);
             if (crop is null)
             {
                 continue;
@@ -129,7 +204,7 @@ public static class SbScenePngRenderer
             RgbaImage? secondaryCrop = null;
             if (layer.SecondaryReference is not null)
             {
-                secondaryCrop = resources.ResolveCrop(layer.SecondaryReference, AddWarning);
+                secondaryCrop = resources.ResolveCrop(layer.SecondaryReference, warningState.Add);
             }
 
             if (DrawLayer(output, crop, secondaryCrop, layer, offsetX, offsetY, renderScale, options.TextureSampling))
@@ -144,8 +219,24 @@ public static class SbScenePngRenderer
             Image = finalImage,
             RenderedItemCount = rendered,
             CandidateItemCount = layers.Count,
-            Warnings = warnings,
+            Warnings = warningState.Warnings,
         };
+    }
+
+    private sealed class RenderWarningState
+    {
+        private readonly List<string> _warnings = [];
+        private readonly HashSet<string> _warningSet = new(StringComparer.Ordinal);
+
+        public IReadOnlyList<string> Warnings => _warnings;
+
+        public void Add(string warning)
+        {
+            if (_warningSet.Add(warning))
+            {
+                _warnings.Add(warning);
+            }
+        }
     }
 
     private static RgbaImage CreateImage(int width, int height, RgbaColor color)

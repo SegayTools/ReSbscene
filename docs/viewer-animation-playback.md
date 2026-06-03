@@ -4,8 +4,8 @@
 
 ## 范围
 
-- Viewer 为每个 animation index 维护一个独立 slot，一次只编辑当前 slot，但播放和渲染会保留所有已启用 slot 的状态。
-- 渲染时从 bind/static 状态开始，按 animation index 顺序叠加 enabled slot；后应用的动画只覆盖自身包含的轨道 channel。
+- Viewer 为每个 animation index 维护一个独立 slot，一次只编辑当前 slot；未锁定的当前 slot 只作为临时预览，切换后不再保留。
+- 渲染时从 bind/static 状态开始，按 animation index 顺序叠加已锁定 slot 和当前预览 slot；后应用的动画只覆盖自身包含的轨道 channel。
 - 默认按 `60.0` sbscene 帧/秒推进播放时间。
 - 内部帧值一律使用 `double`，UI 可以显示整数或小数帧，为后续高刷新率和小数帧插值保留空间。
 - 动画轨道求值与应用规则应复用或抽取 Core 现有逻辑，不在 Viewer 里重新实现插值。
@@ -26,9 +26,9 @@
 - 当前帧文本：例如 `Frame 24.5 / 150`。
 - 帧进度 `Slider`：`Minimum = 0`，`Maximum = EndFrame`，`Value = CurrentFrame`。
 - 播放按钮、暂停按钮、停止按钮。
-- 启用当前槽 `CheckBox`。
+- 锁定当前 slot `CheckBox`，显示文案为“锁定slot”。
 - 循环播放 `CheckBox`。
-- “重置所有状态”按钮：清空已应用 animation 状态并回到静态/fallback 状态。
+- “重置所有状态”按钮：清空已锁定 slot 和当前预览状态，并回到静态/fallback 状态。
 
 无动画时，选择器、进度条、播放、暂停、停止和循环控件全部禁用；底部区域仍保留并显示 `0 animations`，避免布局跳变。
 
@@ -92,26 +92,26 @@ private const double PlaybackFramesPerSecond = 60.0;
 
 状态机规则：
 
-- 加载 scene 后若有动画，默认选中第一个动画；每个动画对应一个 disabled slot，`Frame = 0`，`Loop = ANIM.0x5F` 默认值，不自动播放。
-- 切换动画只切换当前编辑 slot，不暂停其它正在播放的 slot，也不清空其它已启用状态。
-- 当前动画被拖动、播放、停止或勾选“启用”后，写入对应 slot；渲染时按 animation index 顺序叠加 enabled slot，以贴近运行时 layer 遍历。
-- “重置所有状态”按钮禁用全部 slot、把 frame 回到 `0`，并把 loop 恢复为 `ANIM.0x5F` 默认值。
-- 点击播放时，如果没有选中动画则无操作；否则启用当前 slot，并启动 timer 和 stopwatch。
+- 加载 scene 后若有动画，默认选中第一个动画；每个动画对应一个未锁定 slot，`Frame = 0`，`Loop = ANIM.0x5F` 默认值，不自动播放。
+- 切换动画会把新选择的 animation 作为当前预览 slot，不暂停其它正在播放的已锁定 slot，也不清空其它锁定状态。
+- 当前动画被拖动、播放或停止后，写入对应 slot 并作为临时预览参与渲染，但不会自动勾选或锁定 checkbox；只有用户勾选“锁定slot”后，该 slot 才会在切换后继续叠加。
+- “重置所有状态”按钮解锁全部 slot、清空当前预览、把 frame 回到 `0`，并把 loop 恢复为 `ANIM.0x5F` 默认值。
+- 点击播放时，如果没有选中动画则无操作；否则激活当前预览 slot，并启动 timer 和 stopwatch。
 - 点击暂停时停止 timer，保留当前帧并重建当前预览。
-- 点击停止时停止 timer，当前 animation 的 `CurrentFrame = 0`，其它已应用 animation 状态保留。
-- 每个 tick 会推进所有 enabled 且非 selector 的 slot。
+- 点击停止时停止 timer，当前 animation 的 `CurrentFrame = 0`，其它已锁定 animation 状态保留。
+- 每个 tick 会推进所有已锁定或当前预览、且非 selector 的 slot。
 - 播放到 `EndFrame` 时：
   - 循环开启：该 slot wrap 到开头，继续播放。
-  - 循环关闭：该 slot 保持在 `EndFrame`，继续作为已启用 slot 参与后续渲染；如果没有其它可推进 slot，timer 暂停。
+  - 循环关闭：该 slot 保持在 `EndFrame`；已锁定或仍是当前预览时继续参与后续渲染，如果没有其它可推进 slot，timer 暂停。
 - `[1..3]` 作为静态 selector slot，播放时钟不会自动推进它们；拖动这些 slot 的进度条不会暂停其它动画播放。
 - 手动拖动非 selector 进度条会暂停播放，并立即按拖动后的 `CurrentFrame` 重建预览。
-- `EndFrame <= 0` 时，slot 播放保持在第 `0` 帧；点击播放会启用该 slot 后停回暂停状态，避免 timer 空转。
+- `EndFrame <= 0` 时，slot 播放保持在第 `0` 帧；点击播放会激活当前预览后停回暂停状态，避免 timer 空转。
 
 进度条的程序化更新和用户拖动要区分处理，避免 timer 更新 `Slider.Value` 时误触发“用户 seek 后暂停”。可用 `_isUpdatingAnimationControls` 这类布尔 guard 包住 UI 同步。
 
 ## 渲染数据流
 
-当前 Viewer 的 `RenderSceneOptions` 已接收 `IReadOnlyList<RenderSceneAnimationState>`，每个状态保存 `AnimationInfo` 和 `double Frame`。`MainWindow.BuildActiveAnimationStates()` 从 `_animationSlots` 中按 animation index 遍历 enabled slot 后传入 `SceneRenderBuilder.Build`，贴近运行时每帧 reset 后按 enabled 槽遍历应用的行为。
+当前 Viewer 的 `RenderSceneOptions` 已接收 `IReadOnlyList<RenderSceneAnimationState>`，每个状态保存 `AnimationInfo` 和 `double Frame`。`MainWindow.BuildActiveAnimationStates()` 从 `_animationSlots` 中按 animation index 遍历已锁定 slot 和当前预览 slot 后传入 `SceneRenderBuilder.Build`，贴近运行时每帧 reset 后按 enabled 槽遍历应用的行为，同时避免 UI 切换时自动锁定 slot。
 
 `SceneRenderBuilder.Build` 当前顺序为：
 
@@ -173,13 +173,13 @@ Viewer 不复制 `SbScenePngRenderer` 的动画应用逻辑。当前 Core 已有
 已完成：
 
 1. Viewer XAML 已新增动画控制区，并把状态栏移动到下一行。
-2. `MainWindow` 已维护动画选择、slot enabled、slot frame、播放和 slot loop 状态。
+2. `MainWindow` 已维护动画选择、slot locked、临时预览 slot frame、播放和 slot loop 状态。
 3. 加载 scene 后刷新动画列表；无动画时控件禁用。
 4. 已实现 `EndFrame` 和默认 loop 元数据读取。
 5. 进度条 seek 会触发 `RebuildRender` 并渲染动画后的帧状态。
 6. Core 已抽取 `SbSceneAnimationFrameBuilder`，PNG renderer 和 Viewer 共用。
 7. `RenderSceneOptions` 和 `SceneRenderBuilder.Build` 已在构建 render items 前应用动画状态。
-8. 已接入 `DispatcherTimer` + `Stopwatch` 播放推进；tick 会推进所有 enabled 非 selector slot。
+8. 已接入 `DispatcherTimer` + `Stopwatch` 播放推进；tick 会推进所有已锁定或当前预览的非 selector slot。
 9. Viewer 已有“重置所有状态”按钮。
 10. Core 动画帧状态、PNG renderer 和相关渲染规则已有测试覆盖。
 
@@ -188,10 +188,10 @@ Viewer 不复制 `SbScenePngRenderer` 的动画应用逻辑。当前 Core 已有
 当前至少验证以下场景：
 
 - 加载有动画的 sbscene 后，底部区域显示正确动画总数。
-- 切换动画会刷新显示名、结束帧、当前帧和当前 slot loop/enabled 状态，但不会暂停或清空其它已启用 slot。
+- 切换动画会刷新显示名、结束帧、当前帧和当前 slot loop/locked 状态；checkbox 默认不勾选，除非该 slot 是用户手动锁定的 slot。
 - 播放、暂停、停止按钮状态正确；停止后当前 animation 回到第 `0` 帧，其它 animation 状态保留。
-- 重置所有状态按钮会清空已应用 animation 状态，画面回到静态/fallback 状态。
-- 循环关闭时 slot 播放到结束帧后保持 `EndFrame` 并继续参与渲染。
+- 重置所有状态按钮会清空已锁定 animation 和当前预览状态，画面回到静态/fallback 状态。
+- 循环关闭时 slot 播放到结束帧后保持 `EndFrame`，并在已锁定或仍为当前预览时继续参与渲染。
 - 循环开启时 slot 播放到结束帧后自动回到开头并继续播放。
 - selector slot `[1..3]` 不随播放时钟自动推进，拖动它们不暂停其它正在播放的 slot。
 - 拖动进度条能立即渲染对应帧。

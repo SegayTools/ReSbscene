@@ -302,11 +302,11 @@
                         Grid.Column="6"
                         Content="停止"
                         Click="StopAnimation_Click" />
-                <CheckBox x:Name="EnableAnimationSlotCheckBox"
+                <CheckBox x:Name="LockAnimationSlotCheckBox"
                           Grid.Column="7"
-                          Content="启用"
-                          Checked="EnableAnimationSlot_Changed"
-                          Unchecked="EnableAnimationSlot_Changed" />
+                          Content="锁定slot"
+                          Checked="LockAnimationSlot_Changed"
+                          Unchecked="LockAnimationSlot_Changed" />
                 <CheckBox x:Name="LoopAnimationCheckBox"
                           Grid.Column="8"
                           Content="循环"

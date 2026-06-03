@@ -134,7 +134,7 @@ public static class SbSceneAnimationFrameBuilder
         }
     }
 
-    private static bool TryResolveAnimationSelection(
+    public static bool TryResolveAnimationSelection(
         SbSceneFile scene,
         SbSceneAnimationSelection selection,
         out int slotIndex,

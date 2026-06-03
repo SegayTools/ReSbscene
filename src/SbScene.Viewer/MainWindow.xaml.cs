@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     private readonly List<AnimationPlaybackSlot> _animationSlots = [];
     private bool _isUpdatingAnimationControls;
     private int? _selectedAnimationIndex;
+    private int? _previewAnimationIndex;
     private double _currentFrame;
     private double _endFrame;
     private bool _isPlaying;
@@ -147,11 +148,11 @@ public partial class MainWindow : Window
 
         if (AnimationComboBox.SelectedItem is not AnimationListItem item)
         {
-            SelectAnimation(null, rebuild: true);
+            SelectAnimation(null, rebuild: true, activatePreview: true);
             return;
         }
 
-        SelectAnimation(item.Index, rebuild: true);
+        SelectAnimation(item.Index, rebuild: true, activatePreview: true);
     }
 
     private void AnimationFrameSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -162,7 +163,7 @@ public partial class MainWindow : Window
         }
 
         _currentFrame = Math.Clamp(e.NewValue, 0, _endFrame);
-        SetSelectedAnimationSlotEnabled(true);
+        ActivateSelectedAnimationPreview();
         UpdateSelectedAnimationSlot();
         if (!IsStaticSelectorSlot(_selectedAnimationIndex))
         {
@@ -200,14 +201,14 @@ public partial class MainWindow : Window
         SetStatus("已重置所有动画状态。");
     }
 
-    private void EnableAnimationSlot_Changed(object sender, RoutedEventArgs e)
+    private void LockAnimationSlot_Changed(object sender, RoutedEventArgs e)
     {
         if (!_controlsReady || _isUpdatingAnimationControls)
         {
             return;
         }
 
-        SetSelectedAnimationSlotEnabled(EnableAnimationSlotCheckBox.IsChecked == true);
+        SetSelectedAnimationSlotLocked(LockAnimationSlotCheckBox.IsChecked == true);
         UpdateAnimationControls();
         RebuildRender(fitSelectionPreview: false);
     }
@@ -441,7 +442,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var advanced = AdvanceEnabledAnimationSlots(elapsedSeconds * PlaybackFramesPerSecond);
+        var advanced = AdvanceActiveAnimationSlots(elapsedSeconds * PlaybackFramesPerSecond);
         SyncSelectedAnimationFieldsFromSlot();
         if (!advanced)
         {
@@ -466,7 +467,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetSelectedAnimationSlotEnabled(true);
+        ActivateSelectedAnimationPreview();
         if (_endFrame <= 0)
         {
             _currentFrame = 0;
@@ -506,7 +507,7 @@ public partial class MainWindow : Window
     {
         PausePlayback(updateControls: false);
         _currentFrame = 0;
-        SetSelectedAnimationSlotEnabled(true);
+        ActivateSelectedAnimationPreview();
         UpdateSelectedAnimationSlot();
         UpdateAnimationControls();
         if (rebuild)
@@ -521,6 +522,7 @@ public partial class MainWindow : Window
         _animationItems.Clear();
         _animationSlots.Clear();
         _selectedAnimationIndex = null;
+        _previewAnimationIndex = null;
         _currentFrame = 0;
         _endFrame = 0;
         _isLooping = false;
@@ -558,7 +560,7 @@ public partial class MainWindow : Window
 
         if (_animationItems.Count > 0)
         {
-            SelectAnimation(_animationItems[0].Index, rebuild: false);
+            SelectAnimation(_animationItems[0].Index, rebuild: false, activatePreview: false);
         }
         else
         {
@@ -566,12 +568,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SelectAnimation(int? animationIndex, bool rebuild)
+    private void SelectAnimation(int? animationIndex, bool rebuild, bool activatePreview)
     {
         _selectedAnimationIndex = animationIndex;
         _currentFrame = 0;
         _endFrame = 0;
         _isLooping = false;
+        if (activatePreview)
+        {
+            _previewAnimationIndex = animationIndex;
+        }
 
         if (GetSelectedAnimation() is AnimationInfo animation)
         {
@@ -611,14 +617,16 @@ public partial class MainWindow : Window
         }
 
         var animationCount = _scene?.Surfboard.Animations.Count ?? 0;
-        var activeAnimationCount = _animationSlots.Count(static slot => slot.Enabled);
+        var lockedAnimationCount = _animationSlots.Count(static slot => slot.IsLocked);
+        var hasActiveAnimation = HasActiveAnimationSlot();
         var hasAnimation = GetSelectedAnimation() is not null;
-        var selectedAnimationActive = IsSelectedAnimationSlotEnabled();
+        var selectedAnimationActive = IsSelectedAnimationSlotActive();
+        var selectedAnimationLocked = IsSelectedAnimationSlotLocked();
         _isUpdatingAnimationControls = true;
         try
         {
-            AnimationCountTextBlock.Text = activeAnimationCount > 0
-                ? string.Format(CultureInfo.InvariantCulture, "{0:N0} animations, {1:N0} active", animationCount, activeAnimationCount)
+            AnimationCountTextBlock.Text = lockedAnimationCount > 0
+                ? string.Format(CultureInfo.InvariantCulture, "{0:N0} animations, {1:N0} locked", animationCount, lockedAnimationCount)
                 : string.Format(CultureInfo.InvariantCulture, "{0:N0} animations", animationCount);
             AnimationComboBox.IsEnabled = animationCount > 0;
             AnimationFrameSlider.IsEnabled = hasAnimation;
@@ -635,11 +643,11 @@ public partial class MainWindow : Window
             PlayAnimationButton.IsEnabled = hasAnimation && !_isPlaying;
             PauseAnimationButton.IsEnabled = hasAnimation && _isPlaying;
             StopAnimationButton.IsEnabled = hasAnimation && (_isPlaying || selectedAnimationActive && Math.Abs(_currentFrame) > 0.0001);
-            EnableAnimationSlotCheckBox.IsEnabled = hasAnimation;
-            EnableAnimationSlotCheckBox.IsChecked = hasAnimation && selectedAnimationActive;
+            LockAnimationSlotCheckBox.IsEnabled = hasAnimation;
+            LockAnimationSlotCheckBox.IsChecked = hasAnimation && selectedAnimationLocked;
             LoopAnimationCheckBox.IsEnabled = hasAnimation;
             LoopAnimationCheckBox.IsChecked = hasAnimation && _isLooping;
-            ResetAnimationStatesButton.IsEnabled = activeAnimationCount > 0;
+            ResetAnimationStatesButton.IsEnabled = hasActiveAnimation;
         }
         finally
         {
@@ -756,14 +764,22 @@ public partial class MainWindow : Window
         return index is >= 1 and <= 3;
     }
 
-    private void SetSelectedAnimationSlotEnabled(bool enabled)
+    private void ActivateSelectedAnimationPreview()
+    {
+        if (_selectedAnimationIndex is int index && TryGetAnimationSlot(index, out _))
+        {
+            _previewAnimationIndex = index;
+        }
+    }
+
+    private void SetSelectedAnimationSlotLocked(bool locked)
     {
         if (_selectedAnimationIndex is not int index || !TryGetAnimationSlot(index, out var slot))
         {
             return;
         }
 
-        slot.Enabled = enabled;
+        slot.IsLocked = locked;
     }
 
     private void UpdateSelectedAnimationSlot()
@@ -793,11 +809,30 @@ public partial class MainWindow : Window
         _isLooping = false;
     }
 
-    private bool IsSelectedAnimationSlotEnabled()
+    private bool IsSelectedAnimationSlotLocked()
     {
         return _selectedAnimationIndex is int index
             && TryGetAnimationSlot(index, out var slot)
-            && slot.Enabled;
+            && slot.IsLocked;
+    }
+
+    private bool IsSelectedAnimationSlotActive()
+    {
+        return _selectedAnimationIndex is int index
+            && TryGetAnimationSlot(index, out var slot)
+            && IsAnimationSlotActive(slot, index);
+    }
+
+    private bool HasActiveAnimationSlot()
+    {
+        return _animationSlots
+            .Select((slot, index) => new { Slot = slot, Index = index })
+            .Any(item => IsAnimationSlotActive(item.Slot, item.Index));
+    }
+
+    private bool IsAnimationSlotActive(AnimationPlaybackSlot slot, int index)
+    {
+        return slot.IsLocked || _previewAnimationIndex == index;
     }
 
     private bool TryGetAnimationSlot(int index, out AnimationPlaybackSlot slot)
@@ -814,6 +849,7 @@ public partial class MainWindow : Window
 
     private void ResetAnimationSlots()
     {
+        _previewAnimationIndex = null;
         if (_scene is null)
         {
             _animationSlots.Clear();
@@ -823,13 +859,13 @@ public partial class MainWindow : Window
         for (var i = 0; i < _animationSlots.Count && i < _scene.Surfboard.Animations.Count; i++)
         {
             var slot = _animationSlots[i];
-            slot.Enabled = false;
+            slot.IsLocked = false;
             slot.Frame = 0;
             slot.IsLooping = ReadDefaultLoop(_scene.Surfboard.Animations[i]);
         }
     }
 
-    private bool AdvanceEnabledAnimationSlots(double deltaFrames)
+    private bool AdvanceActiveAnimationSlots(double deltaFrames)
     {
         if (_scene is null || deltaFrames <= 0)
         {
@@ -841,7 +877,7 @@ public partial class MainWindow : Window
         for (var i = 0; i < count; i++)
         {
             var slot = _animationSlots[i];
-            if (!slot.Enabled || IsStaticSelectorSlot(i))
+            if (!IsAnimationSlotActive(slot, i) || IsStaticSelectorSlot(i))
             {
                 continue;
             }
@@ -885,7 +921,7 @@ public partial class MainWindow : Window
 
         return _animationSlots
             .Select((slot, index) => new { Slot = slot, Index = index })
-            .Where(item => item.Slot.Enabled && item.Index >= 0 && item.Index < _scene.Surfboard.Animations.Count)
+            .Where(item => IsAnimationSlotActive(item.Slot, item.Index) && item.Index >= 0 && item.Index < _scene.Surfboard.Animations.Count)
             .Select(item => new RenderSceneAnimationState(_scene.Surfboard.Animations[item.Index], item.Slot.Frame))
             .ToArray();
     }
@@ -1479,7 +1515,7 @@ public partial class MainWindow : Window
 
     private sealed class AnimationPlaybackSlot
     {
-        public bool Enabled { get; set; }
+        public bool IsLocked { get; set; }
 
         public double Frame { get; set; }
 

@@ -6,6 +6,7 @@ using SbScene.Core.Output;
 using SbScene.Core.Rendering;
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
+using SbScene.Core.Unity;
 using SbScene.Core.Vtbf;
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -37,6 +38,7 @@ static int Run(string[] args)
     return args[0] switch
     {
         "dump" => Dump(args.Skip(1).ToArray()),
+        "export-unity-navichara" => ExportUnityNavichara(args.Skip(1).ToArray()),
         "extract-images" => ExtractImages(args.Skip(1).ToArray()),
         "inspect" => Inspect(args.Skip(1).ToArray()),
         "inspect-svo" => InspectSvo(args.Skip(1).ToArray()),
@@ -148,6 +150,210 @@ static int ExtractImages(string[] args)
     return 0;
 }
 
+static int ExportUnityNavichara(string[] args)
+{
+    if (args.Length == 0 || args[0] is "-h" or "--help")
+    {
+        PrintExportUnityNavicharaUsage();
+        return args.Length == 0 ? 1 : 0;
+    }
+
+    var positionals = new List<string>();
+    string? output = null;
+    string? profilePath = null;
+    string? profileTemplatePath = null;
+    string? rawJsonPath = null;
+    var characterId = 0;
+    var maps = new List<UnityNavicharaAnimationMap>();
+    int? fashionFrame = null;
+    int? accessoryFrame = null;
+    int? positionFrame = null;
+    var allowPlaceholderClips = false;
+    var bakeSampledCurves = false;
+    var extractSprites = false;
+    var writeValidationFrames = false;
+    var strict = false;
+    var autoMap = false;
+
+    for (var i = 0; i < args.Length; i++)
+    {
+        switch (args[i])
+        {
+            case "--out" when i + 1 < args.Length:
+                output = args[++i];
+                break;
+            case "--character-id" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedCharacterId):
+                characterId = parsedCharacterId;
+                i++;
+                break;
+            case "--profile" when i + 1 < args.Length:
+                profilePath = args[++i];
+                break;
+            case "--map" when i + 1 < args.Length:
+                if (!TryParseUnityNavicharaMap(args[++i], out var map))
+                {
+                    Console.Error.WriteLine("Invalid --map value. Use <sourceAnimation=targetClip>.");
+                    return 1;
+                }
+
+                maps.Add(map);
+                break;
+            case "--write-profile-template" when i + 1 < args.Length:
+                profileTemplatePath = args[++i];
+                break;
+            case "--auto-map":
+                autoMap = true;
+                break;
+            case "--fashion" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedFashionFrame):
+                fashionFrame = parsedFashionFrame;
+                i++;
+                break;
+            case "--accessory" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedAccessoryFrame):
+                accessoryFrame = parsedAccessoryFrame;
+                i++;
+                break;
+            case "--position" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedPositionFrame):
+                positionFrame = parsedPositionFrame;
+                i++;
+                break;
+            case "--allow-placeholder-clips":
+                allowPlaceholderClips = true;
+                break;
+            case "--bake-sampled-curves":
+                bakeSampledCurves = true;
+                break;
+            case "--extract-sprites":
+                extractSprites = true;
+                break;
+            case "--write-validation-frames":
+                writeValidationFrames = true;
+                break;
+            case "--strict":
+                strict = true;
+                break;
+            case "--raw-json" when i + 1 < args.Length:
+                rawJsonPath = args[++i];
+                break;
+            default:
+                if (args[i].StartsWith("--", StringComparison.Ordinal))
+                {
+                    Console.Error.WriteLine($"Unknown or incomplete option: {args[i]}");
+                    return 1;
+                }
+
+                positionals.Add(args[i]);
+                break;
+        }
+    }
+
+    if (positionals.Count == 0)
+    {
+        Console.Error.WriteLine("export-unity-navichara requires <sbscene>.");
+        PrintExportUnityNavicharaUsage();
+        return 1;
+    }
+
+    var sbscene = positionals[0];
+    if (!File.Exists(sbscene))
+    {
+        Console.Error.WriteLine($"sbscene does not exist: {sbscene}");
+        return 1;
+    }
+
+    if (profileTemplatePath is not null)
+    {
+        var scene = new SbSceneParser().ParseFile(sbscene);
+        var template = UnityNavicharaExporter.BuildProfileTemplate(scene);
+        EnsureDirectory(profileTemplatePath);
+        File.WriteAllText(profileTemplatePath, JsonSerializer.Serialize(template, CreateUnityNavicharaJsonOptions(indented: true)), new UTF8Encoding(false));
+        Console.WriteLine($"Wrote NaviChara profile template: {profileTemplatePath}");
+        if (autoMap)
+        {
+            Console.WriteLine("--auto-map only contributes candidate mappings to the template; it is not used as a formal export mapping.");
+        }
+
+        return 0;
+    }
+
+    if (positionals.Count != 2)
+    {
+        Console.Error.WriteLine("export-unity-navichara export mode requires <sbscene> <svo>.");
+        PrintExportUnityNavicharaUsage();
+        return 1;
+    }
+
+    var svo = positionals[1];
+    if (!File.Exists(svo))
+    {
+        Console.Error.WriteLine($"SVO does not exist: {svo}");
+        return 1;
+    }
+
+    if (output is null)
+    {
+        Console.Error.WriteLine("export-unity-navichara requires --out <dir>.");
+        return 1;
+    }
+
+    if (profilePath is null && maps.Count == 0)
+    {
+        Console.Error.WriteLine("export-unity-navichara requires --profile or at least one --map for formal export.");
+        return 1;
+    }
+
+    if (autoMap)
+    {
+        Console.WriteLine("--auto-map was requested, but candidate mappings are informational only. Provide --profile or --map for formal clip mapping.");
+    }
+
+    var profile = profilePath is null ? null : UnityNavicharaProfileLoader.Load(profilePath);
+    var result = UnityNavicharaExporter.Export(
+        sbscene,
+        svo,
+        output,
+        new UnityNavicharaExportOptions
+        {
+            CharacterId = characterId,
+            Profile = profile,
+            Maps = maps,
+            FashionFrame = fashionFrame,
+            AccessoryFrame = accessoryFrame,
+            PositionFrame = positionFrame,
+            AllowPlaceholderClips = allowPlaceholderClips,
+            BakeSampledCurves = bakeSampledCurves,
+            ExtractSprites = extractSprites,
+            WriteValidationFrames = writeValidationFrames,
+            Strict = strict,
+        });
+
+    Directory.CreateDirectory(output);
+    var exportJsonPath = Path.Combine(output, "navichara-export.json");
+    File.WriteAllText(exportJsonPath, JsonSerializer.Serialize(result.Export, CreateUnityNavicharaJsonOptions(indented: true)), new UTF8Encoding(false));
+
+    var diagnosticsPath = Path.Combine(output, "diagnostics.md");
+    File.WriteAllText(diagnosticsPath, UnityNavicharaExporter.FormatDiagnosticsMarkdown(result.Diagnostics), new UTF8Encoding(false));
+
+    if (rawJsonPath is not null)
+    {
+        var raw = new SbSceneParser().ParseFile(sbscene);
+        EnsureDirectory(rawJsonPath);
+        File.WriteAllText(rawJsonPath, JsonSerializer.Serialize(raw, SbSceneJson.CreateOptions(indented: true)), new UTF8Encoding(false));
+    }
+
+    Console.WriteLine($"Wrote NaviChara export JSON: {exportJsonPath}");
+    Console.WriteLine($"Wrote diagnostics: {diagnosticsPath}");
+    Console.WriteLine($"Nodes={result.Export.Nodes.Count}, Sprites={result.Export.Sprites.Count}, Clips={result.Export.Clips.Count}, Diagnostics={result.Diagnostics.Count}");
+    if (result.Failed)
+    {
+        Console.Error.WriteLine(strict
+            ? "export-unity-navichara failed because strict mode rejected diagnostics."
+            : "export-unity-navichara failed because error diagnostics were produced.");
+        return 1;
+    }
+
+    return 0;
+}
+
 static int Render(string[] args)
 {
     if (args.Length == 0 || args[0] is "-h" or "--help")
@@ -164,9 +370,16 @@ static int Render(string[] args)
     var supersample = 1;
     var textureSampling = SbSceneTextureSampling.Nearest;
     var background = RgbaColor.Transparent;
+    var backgroundSpecified = false;
     var showHidden = false;
     var renderSecondary = false;
     var characterDefaults = false;
+    var gif = false;
+    var fps = SbSceneGifAnimationSampler.DefaultFps;
+    SbSceneGifFrameRange? frameRange = null;
+    var gifCompress = false;
+    int? gifWidth = null;
+    int? gifHeight = null;
     var animations = new List<SbSceneAnimationSelection>();
 
     for (var i = 0; i < args.Length; i++)
@@ -210,9 +423,57 @@ static int Render(string[] args)
                     return 1;
                 }
 
+                backgroundSpecified = true;
                 break;
             case "--transparent":
                 background = RgbaColor.Transparent;
+                backgroundSpecified = true;
+                break;
+            case "--gif":
+                gif = true;
+                break;
+            case "--gif-compress":
+                gif = true;
+                gifCompress = true;
+                break;
+            case "--gif-width" when i + 1 < args.Length:
+                if (!int.TryParse(args[++i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedGifWidth) || parsedGifWidth <= 0)
+                {
+                    Console.Error.WriteLine("Invalid --gif-width value. Use a positive integer pixel width.");
+                    return 1;
+                }
+
+                gif = true;
+                gifWidth = parsedGifWidth;
+                break;
+            case "--gif-height" when i + 1 < args.Length:
+                if (!int.TryParse(args[++i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedGifHeight) || parsedGifHeight <= 0)
+                {
+                    Console.Error.WriteLine("Invalid --gif-height value. Use a positive integer pixel height.");
+                    return 1;
+                }
+
+                gif = true;
+                gifHeight = parsedGifHeight;
+                break;
+            case "--fps" when i + 1 < args.Length && int.TryParse(args[i + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedFps):
+                if (parsedFps is < SbSceneGifAnimationSampler.MinFps or > SbSceneGifAnimationSampler.MaxFps)
+                {
+                    Console.Error.WriteLine($"Invalid --fps value. Use {SbSceneGifAnimationSampler.MinFps}..{SbSceneGifAnimationSampler.MaxFps}.");
+                    return 1;
+                }
+
+                fps = parsedFps;
+                i++;
+                break;
+            case "--frames" when i + 1 < args.Length:
+                if (!TryParseGifFrameRange(args[++i], out var parsedFrameRange))
+                {
+                    Console.Error.WriteLine("Invalid --frames value. Use <start:end> with finite numeric frames and start <= end.");
+                    return 1;
+                }
+
+                frameRange = parsedFrameRange;
                 break;
             case "--show-hidden":
                 showHidden = true;
@@ -262,17 +523,32 @@ static int Render(string[] args)
         animations.InsertRange(0, BuildCharacterDefaultSelections());
     }
 
+    if (gifWidth is not null && gifHeight is not null)
+    {
+        Console.Error.WriteLine("Use only one of --gif-width or --gif-height; GIF scaling preserves aspect ratio.");
+        return 1;
+    }
+
+    if (string.Equals(Path.GetExtension(output), ".gif", StringComparison.OrdinalIgnoreCase))
+    {
+        gif = true;
+    }
+
+    var gifMatteColor = backgroundSpecified && background.A > 0
+        ? new RgbaColor(background.R, background.G, background.B, byte.MaxValue)
+        : new RgbaColor(byte.MaxValue, byte.MaxValue, byte.MaxValue, byte.MaxValue);
     var options = new SbSceneRenderOptions
     {
         Padding = padding,
         Scale = scale,
         Supersample = supersample,
         TextureSampling = textureSampling,
-        BackgroundColor = background,
+        BackgroundColor = gif ? RgbaColor.Transparent : background,
         ShowHiddenNodes = showHidden,
         RenderSecondaryImages = renderSecondary,
         Animations = animations,
     };
+    var gifOptions = new RenderGifOptions(gif, fps, frameRange, gifMatteColor, gifCompress, gifWidth, gifHeight);
 
     var input = positionals[0];
     if (Directory.Exists(input))
@@ -283,7 +559,7 @@ static int Render(string[] args)
             return 1;
         }
 
-        return RenderDirectory(input, output, filter, options);
+        return RenderDirectory(input, output, filter, options, gifOptions);
     }
 
     if (!File.Exists(input))
@@ -308,10 +584,10 @@ static int Render(string[] args)
         return 1;
     }
 
-    return RenderOne(input, svo, output, options);
+    return RenderOne(input, svo, output, options, gifOptions);
 }
 
-static int RenderDirectory(string inputDirectory, string outputDirectory, string? filter, SbSceneRenderOptions options)
+static int RenderDirectory(string inputDirectory, string outputDirectory, string? filter, SbSceneRenderOptions options, RenderGifOptions gifOptions)
 {
     var scenePaths = Directory.EnumerateFiles(inputDirectory, "*.sbscene", SearchOption.AllDirectories)
         .Where(path => filter is null || path.Contains(filter, StringComparison.OrdinalIgnoreCase))
@@ -339,8 +615,8 @@ static int RenderDirectory(string inputDirectory, string outputDirectory, string
             continue;
         }
 
-        var output = BuildBatchRenderOutputPath(inputDirectory, outputDirectory, sbscene, usedNames);
-        var code = RenderOne(sbscene, svo, output, options);
+        var output = BuildBatchRenderOutputPath(inputDirectory, outputDirectory, sbscene, usedNames, gifOptions.Enabled ? ".gif" : ".png");
+        var code = RenderOne(sbscene, svo, output, options, gifOptions);
         if (code != 0)
         {
             return code;
@@ -353,9 +629,14 @@ static int RenderDirectory(string inputDirectory, string outputDirectory, string
     return rendered > 0 ? 0 : 1;
 }
 
-static int RenderOne(string sbscene, string svo, string output, SbSceneRenderOptions options)
+static int RenderOne(string sbscene, string svo, string output, SbSceneRenderOptions options, RenderGifOptions gifOptions)
 {
     var scene = new SbSceneParser().ParseFile(sbscene);
+    if (gifOptions.Enabled)
+    {
+        return RenderOneGif(scene, svo, output, options, gifOptions);
+    }
+
     var result = SbScenePngRenderer.Render(scene, svo, options);
 
     EnsureDirectory(output);
@@ -367,6 +648,188 @@ static int RenderOne(string sbscene, string svo, string output, SbSceneRenderOpt
     }
 
     return 0;
+}
+
+static int RenderOneGif(SbSceneFile scene, string svo, string output, SbSceneRenderOptions options, RenderGifOptions gifOptions)
+{
+    var warnings = new List<string>();
+    var warningSet = new HashSet<string>(StringComparer.Ordinal);
+    void AddWarning(string warning)
+    {
+        if (warningSet.Add(warning))
+        {
+            warnings.Add(warning);
+        }
+    }
+
+    var startFrame = gifOptions.FrameRange?.StartFrame ?? 0;
+    var endFrame = gifOptions.FrameRange?.EndFrame ?? SbSceneGifAnimationSampler.ResolveEndFrame(scene, options.Animations, AddWarning);
+    var frameCount = SbSceneGifAnimationSampler.GetOutputFrameCount(startFrame, endFrame, gifOptions.Fps);
+    var frameStates = new List<SbSceneAnimationFrameState>(frameCount);
+    var bounds = new List<SbSceneRenderBounds>(frameCount);
+    for (var frameIndex = 0; frameIndex < frameCount; frameIndex++)
+    {
+        var frameSelections = SbSceneGifAnimationSampler.BuildFrameSelections(options.Animations, frameIndex, gifOptions.Fps, startFrame);
+        var frameState = SbSceneAnimationFrameBuilder.Build(scene, frameSelections, AddWarning);
+        frameStates.Add(frameState);
+        bounds.Add(SbScenePngRenderer.ComputeContentBounds(scene, frameState, options));
+    }
+
+    var unionBounds = SbSceneGifAnimationSampler.UnionBounds(bounds);
+    var frameOptions = CloneRenderOptions(options, unionBounds);
+    var images = new List<RgbaImage>(frameCount);
+    var renderedItems = 0;
+    var candidateItems = 0;
+    foreach (var frameState in frameStates)
+    {
+        var render = SbScenePngRenderer.Render(scene, svo, frameState, frameOptions);
+        renderedItems = Math.Max(renderedItems, render.RenderedItemCount);
+        candidateItems = Math.Max(candidateItems, render.CandidateItemCount);
+        foreach (var warning in render.Warnings)
+        {
+            AddWarning(warning);
+        }
+
+        images.Add(render.Image);
+    }
+
+    if (gifOptions.TargetWidth is not null || gifOptions.TargetHeight is not null)
+    {
+        images = ResizeGifFrames(images, gifOptions.TargetWidth, gifOptions.TargetHeight);
+    }
+
+    var delayCentiseconds = Math.Max(1, (int)Math.Round(100.0 / gifOptions.Fps));
+    EnsureDirectory(output);
+    GifWriter.Write(output, images, delayCentiseconds, gifOptions.MatteColor, compressFrames: gifOptions.Compress);
+    var compressionText = gifOptions.Compress ? ", compressed" : string.Empty;
+    Console.WriteLine($"Rendered {images.Count} GIF frame(s) to {output} ({images[0].Width}x{images[0].Height}, {gifOptions.Fps} fps{compressionText}, source frames {startFrame:R}..{endFrame:R}).");
+    Console.WriteLine($"Rendered up to {renderedItems}/{candidateItems} item(s) per frame.");
+    foreach (var warning in warnings)
+    {
+        Console.WriteLine($"Warning: {warning}");
+    }
+
+    return 0;
+}
+
+static List<RgbaImage> ResizeGifFrames(IReadOnlyList<RgbaImage> images, int? targetWidth, int? targetHeight)
+{
+    if (images.Count == 0)
+    {
+        return [];
+    }
+
+    var (width, height) = ResolveGifOutputSize(images[0].Width, images[0].Height, targetWidth, targetHeight);
+    return images.Select(image => ResizeImageBilinear(image, width, height)).ToList();
+}
+
+static (int Width, int Height) ResolveGifOutputSize(int sourceWidth, int sourceHeight, int? targetWidth, int? targetHeight)
+{
+    if (targetWidth is int requestedWidth)
+    {
+        var resolvedHeight = Math.Max(1, (int)Math.Round(sourceHeight * (requestedWidth / (double)sourceWidth)));
+        return (requestedWidth, resolvedHeight);
+    }
+
+    if (targetHeight is int requestedHeight)
+    {
+        var resolvedWidth = Math.Max(1, (int)Math.Round(sourceWidth * (requestedHeight / (double)sourceHeight)));
+        return (resolvedWidth, requestedHeight);
+    }
+
+    return (sourceWidth, sourceHeight);
+}
+
+static RgbaImage ResizeImageBilinear(RgbaImage input, int width, int height)
+{
+    if (input.Width == width && input.Height == height)
+    {
+        return input;
+    }
+
+    var output = new byte[checked(width * height * 4)];
+    var scaleX = input.Width / (double)width;
+    var scaleY = input.Height / (double)height;
+    for (var y = 0; y < height; y++)
+    {
+        var sourceY = (y + 0.5) * scaleY - 0.5;
+        var y0 = Math.Clamp((int)Math.Floor(sourceY), 0, input.Height - 1);
+        var y1 = Math.Min(y0 + 1, input.Height - 1);
+        var ty = Math.Clamp(sourceY - y0, 0, 1);
+        for (var x = 0; x < width; x++)
+        {
+            var sourceX = (x + 0.5) * scaleX - 0.5;
+            var x0 = Math.Clamp((int)Math.Floor(sourceX), 0, input.Width - 1);
+            var x1 = Math.Min(x0 + 1, input.Width - 1);
+            var tx = Math.Clamp(sourceX - x0, 0, 1);
+
+            ReadPremultipliedPixel(input, x0, y0, out var r00, out var g00, out var b00, out var a00);
+            ReadPremultipliedPixel(input, x1, y0, out var r10, out var g10, out var b10, out var a10);
+            ReadPremultipliedPixel(input, x0, y1, out var r01, out var g01, out var b01, out var a01);
+            ReadPremultipliedPixel(input, x1, y1, out var r11, out var g11, out var b11, out var a11);
+
+            var topR = Lerp(r00, r10, tx);
+            var topG = Lerp(g00, g10, tx);
+            var topB = Lerp(b00, b10, tx);
+            var topA = Lerp(a00, a10, tx);
+            var bottomR = Lerp(r01, r11, tx);
+            var bottomG = Lerp(g01, g11, tx);
+            var bottomB = Lerp(b01, b11, tx);
+            var bottomA = Lerp(a01, a11, tx);
+
+            var premulR = Lerp(topR, bottomR, ty);
+            var premulG = Lerp(topG, bottomG, ty);
+            var premulB = Lerp(topB, bottomB, ty);
+            var alpha = Lerp(topA, bottomA, ty);
+            var destinationOffset = (y * width + x) * 4;
+            if (alpha <= 0)
+            {
+                continue;
+            }
+
+            output[destinationOffset] = ToByte(premulR / alpha);
+            output[destinationOffset + 1] = ToByte(premulG / alpha);
+            output[destinationOffset + 2] = ToByte(premulB / alpha);
+            output[destinationOffset + 3] = ToByte(alpha * 255.0);
+        }
+    }
+
+    return new RgbaImage(width, height, output);
+}
+
+static void ReadPremultipliedPixel(RgbaImage image, int x, int y, out double r, out double g, out double b, out double a)
+{
+    var offset = (y * image.Width + x) * 4;
+    a = image.Pixels[offset + 3] / 255.0;
+    r = image.Pixels[offset] * a;
+    g = image.Pixels[offset + 1] * a;
+    b = image.Pixels[offset + 2] * a;
+}
+
+static double Lerp(double left, double right, double amount)
+{
+    return left + (right - left) * amount;
+}
+
+static byte ToByte(double value)
+{
+    return (byte)Math.Clamp((int)Math.Round(value), byte.MinValue, byte.MaxValue);
+}
+
+static SbSceneRenderOptions CloneRenderOptions(SbSceneRenderOptions options, SbSceneRenderBounds contentBounds)
+{
+    return new SbSceneRenderOptions
+    {
+        Padding = options.Padding,
+        Scale = options.Scale,
+        Supersample = options.Supersample,
+        TextureSampling = options.TextureSampling,
+        BackgroundColor = options.BackgroundColor,
+        ShowHiddenNodes = options.ShowHiddenNodes,
+        RenderSecondaryImages = options.RenderSecondaryImages,
+        Animations = options.Animations,
+        ContentBounds = contentBounds,
+    };
 }
 
 static int Inspect(string[] args)
@@ -5829,11 +6292,11 @@ static IReadOnlyList<SbSceneAnimationSelection> BuildCharacterDefaultSelections(
 {
     return
     [
-        new SbSceneAnimationSelection("Change_Fashion", 0),
-        new SbSceneAnimationSelection("Change_Position", 0),
-        new SbSceneAnimationSelection("Change_Accessory", 0),
-        new SbSceneAnimationSelection("Action_Wait1", 0),
-        new SbSceneAnimationSelection("Mouth_Wait1", 0),
+        new SbSceneAnimationSelection("Change_Fashion", 0) { HasExplicitFrame = true },
+        new SbSceneAnimationSelection("Change_Position", 0) { HasExplicitFrame = true },
+        new SbSceneAnimationSelection("Change_Accessory", 0) { HasExplicitFrame = true },
+        new SbSceneAnimationSelection("Action_Wait1", 0) { HasExplicitFrame = true },
+        new SbSceneAnimationSelection("Mouth_Wait1", 0) { HasExplicitFrame = true },
     ];
 }
 
@@ -5853,7 +6316,7 @@ static string? FindSingleSvoForScene(string sbscene, out int candidateCount)
     return candidates.Length == 1 ? candidates[0] : null;
 }
 
-static string BuildBatchRenderOutputPath(string inputDirectory, string outputDirectory, string sbscene, ISet<string> usedNames)
+static string BuildBatchRenderOutputPath(string inputDirectory, string outputDirectory, string sbscene, ISet<string> usedNames, string extension)
 {
     var fullInput = Path.GetFullPath(inputDirectory);
     var fullScene = Path.GetFullPath(sbscene);
@@ -5880,7 +6343,7 @@ static string BuildBatchRenderOutputPath(string inputDirectory, string outputDir
         uniqueName = $"{safeName}_{suffix}";
     }
 
-    return Path.Combine(outputDirectory, $"{uniqueName}.png");
+    return Path.Combine(outputDirectory, $"{uniqueName}{extension}");
 }
 
 static string MakeSafeFileName(string name)
@@ -5890,95 +6353,53 @@ static string MakeSafeFileName(string name)
     return new string(chars);
 }
 
+static bool TryParseGifFrameRange(string text, out SbSceneGifFrameRange range)
+{
+    range = default;
+    var separator = text.IndexOf(':');
+    if (separator <= 0 || separator == text.Length - 1)
+    {
+        return false;
+    }
+
+    if (!double.TryParse(text[..separator].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var startFrame) ||
+        !double.TryParse(text[(separator + 1)..].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var endFrame))
+    {
+        return false;
+    }
+
+    if (!double.IsFinite(startFrame) || !double.IsFinite(endFrame) || endFrame < startFrame)
+    {
+        return false;
+    }
+
+    range = new SbSceneGifFrameRange(startFrame, endFrame);
+    return true;
+}
+
 static bool TryParseAnimationSelection(string text, out SbSceneAnimationSelection selection)
 {
-    selection = new SbSceneAnimationSelection(string.Empty, 0);
-    if (string.IsNullOrWhiteSpace(text))
-    {
-        return false;
-    }
-
-    var trimmed = text.Trim();
-    if (TryParseBracketedAnimationSelection(trimmed, out selection))
-    {
-        return true;
-    }
-
-    if (trimmed.Contains('[') || trimmed.Contains(']'))
-    {
-        return false;
-    }
-
-    var separator = trimmed.LastIndexOf('@');
-    if (separator < 0)
-    {
-        separator = trimmed.LastIndexOf(':');
-    }
-
-    if (separator < 0)
-    {
-        selection = CreateAnimationSelection(trimmed, 0);
-        return selection.Name.Length > 0;
-    }
-
-    var name = trimmed[..separator].Trim();
-    var frameText = trimmed[(separator + 1)..].Trim();
-    if (name.Length == 0 || frameText.Length == 0)
-    {
-        return false;
-    }
-
-    if (!double.TryParse(frameText, NumberStyles.Float, CultureInfo.InvariantCulture, out var frame))
-    {
-        return false;
-    }
-
-    selection = CreateAnimationSelection(name, frame);
-    return true;
+    return SbSceneAnimationSelectionParser.TryParse(text, out selection);
 }
 
-static bool TryParseBracketedAnimationSelection(string text, out SbSceneAnimationSelection selection)
+static bool TryParseUnityNavicharaMap(string text, out UnityNavicharaAnimationMap map)
 {
-    selection = new SbSceneAnimationSelection(string.Empty, 0);
-    if (!text.EndsWith(']'))
+    map = new UnityNavicharaAnimationMap(string.Empty, string.Empty);
+    var separator = text.IndexOf('=');
+    if (separator <= 0 || separator == text.Length - 1)
     {
         return false;
     }
 
-    var openBracket = text.LastIndexOf('[');
-    if (openBracket < 0)
+    var source = text[..separator].Trim();
+    var target = text[(separator + 1)..].Trim();
+    if (source.Length == 0 || target.Length == 0)
     {
         return false;
     }
 
-    var name = text[..openBracket].Trim();
-    var frameText = text[(openBracket + 1)..^1].Trim();
-    if (name.Length == 0 || frameText.Length == 0)
-    {
-        return false;
-    }
-
-    if (!double.TryParse(frameText, NumberStyles.Float, CultureInfo.InvariantCulture, out var frame))
-    {
-        return false;
-    }
-
-    selection = CreateAnimationSelection(name, frame);
+    map = new UnityNavicharaAnimationMap(source, target);
     return true;
-}
-
-static SbSceneAnimationSelection CreateAnimationSelection(string target, double frame)
-{
-    var trimmed = target.Trim();
-    if (trimmed.Length > 1
-        && trimmed[0] == '#'
-        && int.TryParse(trimmed[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
-        && index >= 0)
-    {
-        return new SbSceneAnimationSelection(trimmed, frame) { Index = index };
-    }
-
-    return new SbSceneAnimationSelection(trimmed, frame);
 }
 
 static bool TryParseTextureSampling(string text, out SbSceneTextureSampling textureSampling)
@@ -6056,6 +6477,13 @@ static void EnsureDirectory(string path)
     }
 }
 
+static JsonSerializerOptions CreateUnityNavicharaJsonOptions(bool indented)
+{
+    var options = SbSceneJson.CreateOptions(indented);
+    options.DictionaryKeyPolicy = null;
+    return options;
+}
+
 static void PrintUsage()
 {
     Console.WriteLine("Usage:");
@@ -6065,20 +6493,50 @@ static void PrintUsage()
     Console.WriteLine("  SbScene.Cli dump <file> --json <out> [--markdown <out>]");
     Console.WriteLine("  SbScene.Cli dump <file> --markdown <out> [--json <out>]");
     Console.WriteLine("  SbScene.Cli extract-images <sbscene> <svo> --out <dir> [--no-atlas]");
-    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png-or-dir> [--filter <text>] [--character-defaults] [--anim <name[frame]|#index[frame]>] [--background <color>] [--scale <n>] [--supersample <n>] [--sampling <mode>] [--high-quality] [--padding <px>] [--show-hidden] [--render-secondary]");
+    Console.WriteLine("  SbScene.Cli export-unity-navichara <sbscene> <svo> --out <dir> [--profile <json>] [--map <source=target>] [--character-id <n>] [--fashion <frame>] [--accessory <frame>] [--position <frame>] [--extract-sprites] [--write-validation-frames] [--strict]");
+    Console.WriteLine("  SbScene.Cli export-unity-navichara <sbscene> --write-profile-template <json> [--auto-map]");
+    Console.WriteLine("  SbScene.Cli render <sbscene-or-dir> [svo] --out <png|gif-or-dir> [--filter <text>] [--gif] [--gif-compress] [--gif-width <px>|--gif-height <px>] [--fps <n>] [--frames <start:end>] [--character-defaults] [--anim <name[frame]|#index[frame]>] [--background <color>] [--scale <n>] [--supersample <n>] [--sampling <mode>] [--high-quality] [--padding <px>] [--show-hidden] [--render-secondary]");
+}
+
+static void PrintExportUnityNavicharaUsage()
+{
+    Console.WriteLine("Usage:");
+    Console.WriteLine("  SbScene.Cli export-unity-navichara <sbscene> <svo> --out <dir> [options]");
+    Console.WriteLine("  SbScene.Cli export-unity-navichara <sbscene> --write-profile-template <json> [--auto-map]");
+    Console.WriteLine();
+    Console.WriteLine("Options:");
+    Console.WriteLine("  --character-id <n>            Character id for UI_Navichara_<n>. Default: 0.");
+    Console.WriteLine("  --profile <json>              Profile with target clips and sourceSlots.");
+    Console.WriteLine("  --map <sourceAnimation=clip>   Override a target clip's curve source. Can be repeated.");
+    Console.WriteLine("  --fashion <frame>             Add/override Change_Fashion fixed slot for all core clips.");
+    Console.WriteLine("  --accessory <frame>           Add/override Change_Accessory fixed slot for all core clips.");
+    Console.WriteLine("  --position <frame>            Add/override Change_Position fixed slot for all core clips.");
+    Console.WriteLine("  --allow-placeholder-clips      Export missing core clips as high-severity bind-pose placeholders.");
+    Console.WriteLine("  --bake-sampled-curves          Emit sampled60 dense keys instead of keyed curves.");
+    Console.WriteLine("  --extract-sprites              Write cropped PNG sprites under <out>/sprites.");
+    Console.WriteLine("  --write-validation-frames      Render validation PNGs under <out>/validation.");
+    Console.WriteLine("  --strict                       Fail on warning/high/error diagnostics.");
+    Console.WriteLine("  --raw-json <out>               Also write the raw dump JSON.");
 }
 
 static void PrintRenderUsage()
 {
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SbScene.Cli render <sbscene> [svo] --out <png> [options]");
+    Console.WriteLine("  SbScene.Cli render <sbscene> [svo] --out <png|gif> [options]");
     Console.WriteLine("  SbScene.Cli render <dir> --out <dir> [--filter <text>] [options]");
     Console.WriteLine();
     Console.WriteLine("Options:");
     Console.WriteLine("  --character-defaults       Apply Change_Fashion, Change_Position, Change_Accessory, Action_Wait1, and Mouth_Wait1 at frame 0.");
+    Console.WriteLine("  --gif                     Write animated GIF output. Also enabled automatically when --out ends with .gif.");
+    Console.WriteLine("  --gif-compress            Write changed frame rectangles instead of full GIF frames.");
+    Console.WriteLine("  --gif-width <px>          Resize GIF output proportionally to this width.");
+    Console.WriteLine("  --gif-height <px>         Resize GIF output proportionally to this height.");
+    Console.WriteLine("  --fps <n>                 GIF frame rate, 1..60. Default: 30.");
+    Console.WriteLine("  --frames <start:end>      GIF source frame range override. Default: 0 to max enabled animation end frame.");
     Console.WriteLine("  --anim <name[frame]>      Enable an animation slot at a frame. Alias: --animation. #index[frame] is also accepted.");
+    Console.WriteLine("                             In GIF mode, --anim <name> plays on the timeline; explicit frames stay fixed.");
     Console.WriteLine("                             Enabled slots are applied by animation index; duplicate slots use the last specified frame.");
-    Console.WriteLine("  --background <color>      transparent, #RRGGBB, or #AARRGGBB.");
+    Console.WriteLine("  --background <color>      transparent, #RRGGBB, or #AARRGGBB. GIF output composites to an opaque matte; default is white.");
     Console.WriteLine("  --scale <n>               Output scale. Default: 1.");
     Console.WriteLine("  --sampling <mode>         Texture sampling: nearest or bilinear. Default: nearest.");
     Console.WriteLine("  --supersample <n>         Render internally at n times the output scale, then box downsample. 1..8, default: 1.");
@@ -6087,6 +6545,15 @@ static void PrintRenderUsage()
     Console.WriteLine("  --show-hidden             Render nodes even if display state is false.");
     Console.WriteLine("  --render-secondary        Deprecated; secondary CIMG references are rendered only when the CIMG surface mode uses them.");
 }
+
+internal sealed record RenderGifOptions(
+    bool Enabled,
+    int Fps,
+    SbSceneGifFrameRange? FrameRange,
+    RgbaColor MatteColor,
+    bool Compress,
+    int? TargetWidth,
+    int? TargetHeight);
 
 internal sealed class SurveyResult
 {

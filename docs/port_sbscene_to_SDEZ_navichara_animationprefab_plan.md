@@ -23,7 +23,7 @@
 - AssetBundle 打包、bundle manifest 依赖、数据表接入、放入 SDEZ 游戏实机加载。
 - 目录批量导出。
 - type 19 secondary surface 可见效果。
-- type 25-28 illumination、type 29-44 vertex color、更完整的 `CIMG.0x48` blend/surface mode。
+- type 29-44 vertex color、更完整的 `CIMG.0x48` blend/surface mode。
 
 首版支持的动画 track：
 
@@ -39,8 +39,8 @@
 | 13 | Image height | `RectTransform.m_SizeDelta.y` | 支持 |
 | 18 | Primary image index | `MultipleImage._selectSpriteIndex` | 支持，正式路径 |
 | 19 | Secondary image index | 需要 secondary surface 组件/材质 | 首版 raw + diagnostics，后续 TODO |
-| 21-24 | Material RGBA | `Graphic.m_Color.r/g/b/a` | 支持，需视觉校准 |
-| 25-28 | Illumination RGBA | 目标 shader/BlendImage 扩展 | 首版 raw + diagnostics，后续 TODO |
+| 21-24 | Material RGBA | `Graphic.m_Color.r/g/b/a` | 支持，与 illumination 合成输出 |
+| 25-28 | Illumination RGBA | 烘焙到 `Graphic.m_Color.r/g/b/a` | 支持；按 `material + illumination * alpha` 合成 |
 | 29-44 | Vertex color RGBA | UGUI Image 无直接等价 | raw + diagnostics |
 | 2/3/4/8 | 3D Z/X/Y/ScaleZ 候选 | 通常 2D 不使用 | 非默认值写 diagnostics |
 
@@ -53,8 +53,7 @@
 - 6 个核心 clips：`Navi_Default`、`Navi_Welcom`、`Navi_Fun_Start`、`Navi_Fun_Loop_01`、`Navi_Fun_End`、`Navi_Sad_01`。
 - 7 个 Animator states：上述 6 个加 `Navi_Fun_Loop_02`，其中 `Navi_Fun_Loop_02` 的 motion 复用 `Navi_Fun_Loop_01.anim`。
 - bool 参数 `IsClear`。
-- `NavigationCharacter` 字段绑定：`_characterNaviAnimator`、`_animationLayerIndex`、`_emotionObject`、`_default`、`_funStart`、`_funLoop`、`_funEnd`、`_sad`。其中 `_characterNaviAnimator` 是 `Animator[]`，单角色首版写长度 1，元素为根节点 Animator；`_funLoop` 指向 `Navi_Fun_Loop_01.anim`，不是 `Navi_Fun_Loop_02`。
-- `NavigationCharacter` 还序列化 `HashDefault`、`HashWelcom`、`HashFunStart`、`HashSad01`、`HashFunLoop`。反编译源码中默认值来自 `Animator.StringToHash(...)`，其中 `HashFunLoop` 指向 state `Navi_Fun_Loop_02`。
+- `NavigationCharacter` 字段绑定：Animator、`_emotionObject`、`_default`、`_funStart`、`_funLoop`、`_funEnd`、`_sad`。
 
 首版 prefab 层级复刻 sbscene 原始节点树，只在外层补 SDEZ NaviChara 必需结构：
 
@@ -79,8 +78,6 @@ Animator 模板：
 | `Navi_Fun_End` | `Navi_Fun_End.anim` | 否 | 由 `IsClear` 分支 |
 | `Navi_Sad_01` | `Navi_Sad_01.anim` | 是 | 悲伤循环 |
 | `Navi_Fun_Loop_02` | `Navi_Fun_Loop_01.anim` | 是 | 代码按 state hash 直接 Play |
-
-原生状态机的自然链路为 `Navi_Fun_Start -> Navi_Fun_Loop_01 -> Navi_Fun_End -> Navi_Sad_01/Navi_Fun_Loop_02`，但 `NavigationCharacter.Play(...)` 也会直接按 state hash 跳到 `Navi_Default`、`Navi_Welcom`、`Navi_Fun_Start`、`Navi_Fun_Loop_02` 或 `Navi_Sad_01`。
 
 ## 4. CLI 设计
 
@@ -226,8 +223,8 @@ out/navichara/<name>/
   },
   "settings": {
     "sampleRate": 60,
-    "coordinateSystem": "sbscene-y-down-to-unity-ui",
-    "rotationZMultiplier": -1.0,
+    "coordinateSystem": "sbscene-y-down-to-unity-y-up",
+    "rotationZMultiplier": 1.0,
     "pixelsPerUnit": 1.0,
     "curveBakeMode": "keyed",
     "preserveSourceCoordinates": true,
@@ -382,7 +379,7 @@ Sprite 文件名首版优先使用 sbscene/SVO 中能追溯到的资源名或节
 旋转：
 
 - RotateZ 首版使用 Euler Z 曲线，不主动生成 quaternion 曲线。
-- 默认应用 `rotationZMultiplier = -1.0`，对齐当前 PNG renderer/Viewer 在 Y 向下像素坐标中的表现。
+- 默认应用 `rotationZMultiplier = 1.0`，坐标导出会把 Y 向下 scene/source 空间转换为 Unity UI 的 Y 向上空间；PNG renderer/Viewer 的 Y 向下旋转取负规则不能直接复用到 Unity UI。
 - Unity 2018 保存 `.anim` 后是否自动改写旋转曲线需要验证；如果发生改写，再补专门写入策略。
 
 图片变体：
@@ -391,8 +388,6 @@ Sprite 文件名首版优先使用 sbscene/SVO 中能追溯到的资源名或节
 - 多变体 CIMG 填 `MultiSprites[]`，type 18 曲线驱动 `_selectSpriteIndex`。
 - 单图节点可以用普通 `Image`。
 - 多变体节点找不到 `MultipleImage/MultiSprites` 脚本时，Full 模式默认失败；只有用户显式启用 fallback 才退化为 `Image.sprite` / PPtr 曲线，并写 diagnostics。
-- `MultipleImage` 继承 `Image`；其 `ChangeSprite(index)` 会同时更新私有 `_selectSpriteIndex` 和 `base.sprite`。Importer 生成 prefab 默认态时必须把 `MultiSprites[]`、`_selectSpriteIndex` 和 `Image.sprite` 同步到默认 primary sprite。
-- 原生 SDEZ `.anim` 中可见 classID 114 的 script 字段曲线和 PPtr 绑定，说明动态变体不应只做静态数组填充；type 18 的 Unity 输出是否需要 `_selectSpriteIndex` 与 `Image.sprite` PPtr 双写，作为首个 Unity 侧验证重点。
 
 Material RGBA：
 
@@ -434,12 +429,11 @@ Importer 模式：
 
 `Full` 模式自动绑定 `NavigationCharacter`：
 
-- `_characterNaviAnimator` 按 `Animator[]` 写入，首版数组长度 1，元素指向根 Animator。
+- `_characterNaviAnimator` 指向根 Animator。
 - `_animationLayerIndex = 0`。
 - `_emotionObject = Null_EFF_Emotion`。
 - `_default/_funStart/_funLoop/_funEnd/_sad` 指向对应 clips。
 - `Navi_Welcom` 没有对应字段，但仍生成 clip/state。
-- `HashDefault/HashWelcom/HashFunStart/HashSad01/HashFunLoop` 若字段存在则显式写入对应 state hash，尤其 `HashFunLoop = Animator.StringToHash("Navi_Fun_Loop_02")`。
 
 实现约束：
 
@@ -484,11 +478,10 @@ Unity 侧验证：
 
 - Unity text `.anim` 中自定义 MonoBehaviour 字段可能显示成 `script_<hash>`；Editor API 中应使用实际字段名 `_selectSpriteIndex`。
 - Importer 使用字符串组件名和 `SerializedObject` 字段绑定，需在目标工程验证字段名。
-- `MultipleImage._selectSpriteIndex` 动画曲线是否足以触发运行时换图需要在 Unity 2018.4.7f1 中实测；若只改私有字段不触发 `base.sprite` 更新，则 type 18 必须同时写 `Image.sprite` PPtr 曲线或改用可调用 `ChangeSprite` 的辅助组件/Playable 路径。
 - RotateZ 输出 Euler Z 曲线；Unity 2018 可能在保存/import 后改写旋转曲线。
 - Hermite tangent 到 Unity tangent 的映射需要实测；如 keyed 模式视觉不一致，使用 `sampled60` 验证。
-- Material RGBA 映射到 `Graphic.color`，需要视觉对比校准色彩差异。
-- secondary surface、illumination、vertex color 和 `CIMG.0x48` blend/surface mode 与 UGUI Image 不完全等价。
+- Material RGBA 与 illumination RGBA 合成后映射到 `Graphic.color`，需要视觉对比校准色彩差异。
+- secondary surface、vertex color 和 `CIMG.0x48` blend/surface mode 与 UGUI Image 不完全等价。
 - CIMG pivot 不能默认中心点。必须使用导出的 sbscene pivot，并验证 type 12/13 宽高动画围绕同一 pivot 变化。
 - `ANIM.0x56` 是 playback duration/end-frame 候选，不一定覆盖所有 key 的最大帧。导出 clip 长度默认用它，但 diagnostics 要列出超出 end frame 的 track/key。
 - Sprite 命名首版优先 sbscene/SVO 可追溯名称，冲突退回稳定命名；不要自动伪造官方 `ui_navichara_XX_pN_MM` 分组。
@@ -509,7 +502,7 @@ Unity 侧验证：
 ## 12. 后续 TODO
 
 - 支持 type 19 secondary image slot 的可见效果：结合 `CIMG.0x48` surface mode、primary/secondary stage 组合、blend/UV 规则，决定扩展 `MultipleImage` 还是新增 secondary surface 组件/材质。
-- 支持 illumination type 25-28：确认目标侧 `BlendImage`、自定义 shader 或额外组件字段，不能直接混入 `Graphic.color`。
+- 若烘焙到 `Graphic.color` 仍无法覆盖特殊效果，再为 illumination type 25-28 评估目标侧 `BlendImage`、自定义 shader 或额外组件字段。
 - 支持 vertex color 和更完整的 `CIMG.0x48` blend/surface mode。
 - 接入 AssetBundle 打包、bundle manifest 依赖和 SDEZ 游戏实机加载链路。
 - 支持目录批量导出：每个角色使用独立 profile 或 profile 匹配规则。
