@@ -489,6 +489,162 @@ public sealed class UnityNavicharaExporterTests
         Assert.Equal(1, alphaCurve.Keys[0].Value, precision: 6);
     }
 
+    [Fact]
+    public void ExportAutoCentersVisibleContentToOriginByDefault()
+    {
+        // Node offset far from origin with a centered 100x80 image cast.
+        var scene = Scene(
+            [Node(0, "Body", translationX: 200, translationY: 120)],
+            [RenderableImageCast(castIndex: 0, width: 100, height: 80, pivotX: 50, pivotY: 40)],
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(0, Track(0, Key(0, 0), Key(10, 0)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+        var profile = CenterTestProfile();
+
+        var centered = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = profile,
+                AllowPlaceholderClips = true,
+            });
+
+        // Scene-space content center is the node world translation (200, 120) for a centered sprite.
+        // Unity offset cancels X and flips Y: offset = (-200, +120).
+        var offset = centered.Export.Settings.RootTransform.Offset;
+        Assert.Equal(-200, offset.X, precision: 3);
+        Assert.Equal(120, offset.Y, precision: 3);
+        Assert.Contains(centered.Diagnostics, diagnostic => diagnostic.Code == "AutoCenterApplied");
+
+        // Applying offset to the node's Unity position must land the content at the origin.
+        var node = Assert.Single(centered.Export.Nodes.Where(node => node.Id == 0));
+        Assert.Equal(0, node.Static.AnchoredPosition.X + offset.X, precision: 3);
+        Assert.Equal(0, node.Static.AnchoredPosition.Y + offset.Y, precision: 3);
+    }
+
+    [Fact]
+    public void ExportKeepsRawCoordinatesWhenAutoCenterDisabled()
+    {
+        var scene = Scene(
+            [Node(0, "Body", translationX: 200, translationY: 120)],
+            [RenderableImageCast(castIndex: 0, width: 100, height: 80, pivotX: 50, pivotY: 40)],
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(0, Track(0, Key(0, 0), Key(10, 0)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+
+        var result = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = CenterTestProfile(),
+                AllowPlaceholderClips = true,
+                AutoCenter = false,
+            });
+
+        var offset = result.Export.Settings.RootTransform.Offset;
+        Assert.Equal(0, offset.X, precision: 6);
+        Assert.Equal(0, offset.Y, precision: 6);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "AutoCenterApplied");
+    }
+
+    [Fact]
+    public void ExportDoesNotOverrideExplicitProfileOffset()
+    {
+        var scene = Scene(
+            [Node(0, "Body", translationX: 200, translationY: 120)],
+            [RenderableImageCast(castIndex: 0, width: 100, height: 80, pivotX: 50, pivotY: 40)],
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(0, Track(0, Key(0, 0), Key(10, 0)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+        var profile = new UnityNavicharaExportProfile
+        {
+            Settings = new UnityNavicharaProfileSettings
+            {
+                RootTransform = new UnityNavicharaRootTransform
+                {
+                    Scale = 1.0,
+                    Offset = new UnityNavicharaVector2 { X = 5, Y = -7 },
+                },
+            },
+            Clips =
+            {
+                ["Navi_Default"] = new UnityNavicharaProfileClip
+                {
+                    Loop = true,
+                    DurationFrames = "autoMax",
+                    SourceSlots =
+                    [
+                        new UnityNavicharaSourceSlot
+                        {
+                            Animation = "Action_Wait1",
+                            Frame = "curve",
+                        },
+                    ],
+                },
+            },
+        };
+
+        var result = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = profile,
+                AllowPlaceholderClips = true,
+            });
+
+        var offset = result.Export.Settings.RootTransform.Offset;
+        Assert.Equal(5, offset.X, precision: 6);
+        Assert.Equal(-7, offset.Y, precision: 6);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "AutoCenterSkippedExplicitOffset");
+    }
+
+    private static UnityNavicharaExportProfile CenterTestProfile()
+    {
+        return new UnityNavicharaExportProfile
+        {
+            Clips =
+            {
+                ["Navi_Default"] = new UnityNavicharaProfileClip
+                {
+                    Loop = true,
+                    DurationFrames = "autoMax",
+                    SourceSlots =
+                    [
+                        new UnityNavicharaSourceSlot
+                        {
+                            Animation = "Action_Wait1",
+                            Frame = "curve",
+                        },
+                    ],
+                },
+            },
+        };
+    }
+
     private static SbSceneFile Scene(IReadOnlyList<NodeInfo> nodes, params AnimationInfo[] animations)
     {
         return Scene(nodes, [], animations);
@@ -637,6 +793,52 @@ public sealed class UnityNavicharaExporterTests
             PrimaryCropReferences = [],
             SecondaryCropReferences = [],
             CropReferences = [],
+        };
+    }
+
+    private static SbSceneImageCast RenderableImageCast(int castIndex, float width, float height, float pivotX, float pivotY)
+    {
+        return new SbSceneImageCast
+        {
+            Index = 0,
+            Offset = 0,
+            ImageCastFlags = 0,
+            ImageCastFlagBits = [],
+            CastIndex = castIndex,
+            NodeName = "node",
+            Width = width,
+            Height = height,
+            PivotX = pivotX,
+            PivotY = pivotY,
+            DeclaredCropReferenceCount = 1,
+            PrimaryCropReferenceCount = 1,
+            SecondaryCropReferenceCount = null,
+            SecondaryCropFlag = null,
+            PrimaryCropIndex = null,
+            SecondaryCropIndex = null,
+            PrimaryCropReferenceIndex = 0,
+            SecondaryCropReferenceIndex = null,
+            CropReferenceCountMatches = true,
+            CropIndexValues = [],
+            CropRefCounts = [],
+            PrimaryCropReferences = [CropReference(0)],
+            SecondaryCropReferences = [],
+            CropReferences = [CropReference(0)],
+        };
+    }
+
+    private static SbSceneCropReference CropReference(int index)
+    {
+        return new SbSceneCropReference
+        {
+            Index = index,
+            RawHex = string.Empty,
+            Kind = 0,
+            TextureListIndex = 0,
+            TextureIndex = 0,
+            CropIndex = index,
+            AtlasName = null,
+            CropPath = null,
         };
     }
 

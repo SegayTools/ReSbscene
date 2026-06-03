@@ -174,6 +174,7 @@ static int ExportUnityNavichara(string[] args)
     var writeValidationFrames = false;
     var strict = false;
     var autoMap = false;
+    var autoCenter = true;
 
     for (var i = 0; i < args.Length; i++)
     {
@@ -230,6 +231,9 @@ static int ExportUnityNavichara(string[] args)
                 break;
             case "--strict":
                 strict = true;
+                break;
+            case "--no-auto-center":
+                autoCenter = false;
                 break;
             case "--raw-json" when i + 1 < args.Length:
                 rawJsonPath = args[++i];
@@ -324,6 +328,7 @@ static int ExportUnityNavichara(string[] args)
             ExtractSprites = extractSprites,
             WriteValidationFrames = writeValidationFrames,
             Strict = strict,
+            AutoCenter = autoCenter,
         });
 
     Directory.CreateDirectory(output);
@@ -6516,6 +6521,7 @@ static void PrintExportUnityNavicharaUsage()
     Console.WriteLine("  --extract-sprites              Write cropped PNG sprites under <out>/sprites.");
     Console.WriteLine("  --write-validation-frames      Render validation PNGs under <out>/validation.");
     Console.WriteLine("  --strict                       Fail on warning/high/error diagnostics.");
+    Console.WriteLine("  --no-auto-center               Keep raw sbscene coordinates instead of centering the character to the origin.");
     Console.WriteLine("  --raw-json <out>               Also write the raw dump JSON.");
 }
 

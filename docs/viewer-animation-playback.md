@@ -80,34 +80,36 @@ private double _currentFrame;
 private double _endFrame;
 private bool _isPlaying;
 private bool _isLooping;
+private TimeSpan? _playbackRenderingStartTime;
+private double _playbackStartFrame;
 private readonly List<AnimationPlaybackSlot> _animationSlots;
 private const double PlaybackFramesPerSecond = 60.0;
 ```
 
-播放推进使用 WPF `DispatcherTimer` 加 `Stopwatch`：
+播放推进使用 WPF `CompositionTarget.Rendering`：
 
-- `DispatcherTimer` 只负责定期触发 UI 线程更新。
-- `Stopwatch` 计算真实经过时间，避免依赖 timer 间隔精度。
-- 每次 tick 执行 `CurrentFrame += elapsedSeconds * 60.0`。
+- 点击播放时挂接 `CompositionTarget.Rendering`，暂停、停止或窗口关闭时解除挂接。
+- 回调从 `RenderingEventArgs.RenderingTime` 获取当前 composition 时间线，用 `playbackStartFrame + elapsedSeconds * 60.0` 计算当前播放帧。
+- 回调复用和 `AnimationFrameSlider_ValueChanged` 同一套 seek 流程：更新当前帧、写入当前 slot、刷新滑条/文本并重建渲染。
 
 状态机规则：
 
 - 加载 scene 后若有动画，默认选中第一个动画；每个动画对应一个未锁定 slot，`Frame = 0`，`Loop = ANIM.0x5F` 默认值，不自动播放。
-- 切换动画会把新选择的 animation 作为当前预览 slot，不暂停其它正在播放的已锁定 slot，也不清空其它锁定状态。
+- 切换动画会把新选择的 animation 作为当前预览 slot，不清空其它已锁定状态。
 - 当前动画被拖动、播放或停止后，写入对应 slot 并作为临时预览参与渲染，但不会自动勾选或锁定 checkbox；只有用户勾选“锁定slot”后，该 slot 才会在切换后继续叠加。
 - “重置所有状态”按钮解锁全部 slot、清空当前预览、把 frame 回到 `0`，并把 loop 恢复为 `ANIM.0x5F` 默认值。
-- 点击播放时，如果没有选中动画则无操作；否则激活当前预览 slot，并启动 timer 和 stopwatch。
-- 点击暂停时停止 timer，保留当前帧并重建当前预览。
-- 点击停止时停止 timer，当前 animation 的 `CurrentFrame = 0`，其它已锁定 animation 状态保留。
-- 每个 tick 会推进所有已锁定或当前预览、且非 selector 的 slot。
+- 点击播放时，如果没有选中动画则无操作；否则激活当前预览 slot，并挂接 rendering 回调。
+- 点击暂停时解除 rendering 回调，保留当前帧并重建当前预览。
+- 点击停止时解除 rendering 回调，当前 animation 的 `CurrentFrame = 0`，其它已锁定 animation 状态保留。
+- 每次 rendering 回调只推进当前预览的非 selector slot；已锁定 slot 继续参与渲染叠加，但不会被播放按钮自动推进。
 - 播放到 `EndFrame` 时：
   - 循环开启：该 slot wrap 到开头，继续播放。
-  - 循环关闭：该 slot 保持在 `EndFrame`；已锁定或仍是当前预览时继续参与后续渲染，如果没有其它可推进 slot，timer 暂停。
+  - 循环关闭：该 slot 保持在 `EndFrame`；已锁定或仍是当前预览时继续参与后续渲染，随后暂停播放。
 - `[1..3]` 作为静态 selector slot，播放时钟不会自动推进它们；拖动这些 slot 的进度条不会暂停其它动画播放。
 - 手动拖动非 selector 进度条会暂停播放，并立即按拖动后的 `CurrentFrame` 重建预览。
-- `EndFrame <= 0` 时，slot 播放保持在第 `0` 帧；点击播放会激活当前预览后停回暂停状态，避免 timer 空转。
+- `EndFrame <= 0` 时，slot 播放保持在第 `0` 帧；点击播放会激活当前预览后停回暂停状态，避免 rendering 回调空转。
 
-进度条的程序化更新和用户拖动要区分处理，避免 timer 更新 `Slider.Value` 时误触发“用户 seek 后暂停”。可用 `_isUpdatingAnimationControls` 这类布尔 guard 包住 UI 同步。
+进度条的程序化更新和用户拖动要区分处理，避免 rendering 回调更新 `Slider.Value` 时误触发“用户 seek 后暂停”。可用 `_isUpdatingAnimationControls` 这类布尔 guard 包住 UI 同步。
 
 ## 渲染数据流
 
@@ -166,7 +168,7 @@ Viewer 不复制 `SbScenePngRenderer` 的动画应用逻辑。当前 Core 已有
 - `ANIM.0x56` 缺失或非法：才使用 track/key 最大帧回退。
 - 无 SVO：仍可 seek 和播放，CIMG 继续以占位方式绘制。
 - 选中子树预览：应基于同一帧的 `_renderScene` 过滤，不单独重建另一套静态场景。
-- 手动显示/隐藏子树：在动画播放过程中持续生效，不因 tick 重建而丢失。
+- 手动显示/隐藏子树：在动画播放过程中持续生效，不因 rendering 回调重建而丢失。
 
 ## 实现状态
 
@@ -179,7 +181,7 @@ Viewer 不复制 `SbScenePngRenderer` 的动画应用逻辑。当前 Core 已有
 5. 进度条 seek 会触发 `RebuildRender` 并渲染动画后的帧状态。
 6. Core 已抽取 `SbSceneAnimationFrameBuilder`，PNG renderer 和 Viewer 共用。
 7. `RenderSceneOptions` 和 `SceneRenderBuilder.Build` 已在构建 render items 前应用动画状态。
-8. 已接入 `DispatcherTimer` + `Stopwatch` 播放推进；tick 会推进所有已锁定或当前预览的非 selector slot。
+8. 已接入 `CompositionTarget.Rendering` 播放推进；rendering 回调会按当前播放时间线推进当前预览的非 selector slot。
 9. Viewer 已有“重置所有状态”按钮。
 10. Core 动画帧状态、PNG renderer 和相关渲染规则已有测试覆盖。
 
@@ -193,7 +195,7 @@ Viewer 不复制 `SbScenePngRenderer` 的动画应用逻辑。当前 Core 已有
 - 重置所有状态按钮会清空已锁定 animation 和当前预览状态，画面回到静态/fallback 状态。
 - 循环关闭时 slot 播放到结束帧后保持 `EndFrame`，并在已锁定或仍为当前预览时继续参与渲染。
 - 循环开启时 slot 播放到结束帧后自动回到开头并继续播放。
-- selector slot `[1..3]` 不随播放时钟自动推进，拖动它们不暂停其它正在播放的 slot。
+- selector slot `[1..3]` 不随播放时钟自动推进，拖动它们不会清空其它已锁定 slot。
 - 拖动进度条能立即渲染对应帧。
 - 小数帧能通过现有插值逻辑渲染，不被 UI 或 options 截断成整数。
 - 无动画、无 SVO、隐藏节点、手动显示/隐藏子树、选中子树预览这些现有场景不回归。

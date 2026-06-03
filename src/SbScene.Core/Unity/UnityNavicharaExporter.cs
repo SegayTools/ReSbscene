@@ -40,6 +40,7 @@ public static class UnityNavicharaExporter
 
         var diagnostics = new List<UnityNavicharaDiagnostic>();
         var settings = BuildSettings(options);
+        settings = ApplyAutoCenter(scene, settings, options, diagnostics);
         var character = new UnityNavicharaCharacter
         {
             Id = options.CharacterId,
@@ -193,6 +194,79 @@ public static class UnityNavicharaExporter
             CurveBakeMode = bakeMode,
             RotationZMultiplier = profileSettings?.RotationZMultiplier ?? 1.0,
             RootTransform = profileSettings?.RootTransform ?? new UnityNavicharaRootTransform(),
+        };
+    }
+
+    /// <summary>
+    /// 计算 bind 状态可见内容的世界包围盒中心,把它平移到 Unity 原点,结果写入 rootTransform.offset。
+    /// renderer 包围盒为 sbscene 场景坐标(Y-down),导出端节点用 Y-up(<see cref="ToUnityY"/> = -y),
+    /// 故 offset.X = -(left+right)/2,offset.Y = (top+bottom)/2(Y 翻转抵消取负)。
+    /// </summary>
+    private static UnityNavicharaSettings ApplyAutoCenter(
+        SbSceneFile scene,
+        UnityNavicharaSettings settings,
+        UnityNavicharaExportOptions options,
+        List<UnityNavicharaDiagnostic> diagnostics)
+    {
+        if (!options.AutoCenter)
+        {
+            return settings;
+        }
+
+        // profile 显式给了非零 offset 视为手动指定,让位不覆盖。
+        var existingOffset = settings.RootTransform.Offset;
+        if (Math.Abs(existingOffset.X) > Epsilon || Math.Abs(existingOffset.Y) > Epsilon)
+        {
+            diagnostics.Add(new UnityNavicharaDiagnostic
+            {
+                Severity = "info",
+                Code = "AutoCenterSkippedExplicitOffset",
+                Message = $"Auto-center skipped because profile rootTransform.offset is set to ({existingOffset.X}, {existingOffset.Y}).",
+            });
+            return settings;
+        }
+
+        var bind = SbSceneAnimationFrameBuilder.BuildInitial(scene);
+        var bounds = SbScenePngRenderer.ComputeContentBounds(scene, bind);
+        if (!double.IsFinite(bounds.Width) || !double.IsFinite(bounds.Height) || bounds.Width <= 0 || bounds.Height <= 0)
+        {
+            diagnostics.Add(new UnityNavicharaDiagnostic
+            {
+                Severity = "info",
+                Code = "AutoCenterNoContent",
+                Message = "Auto-center skipped because the bind-pose render produced no measurable visible content.",
+            });
+            return settings;
+        }
+
+        var centerX = (bounds.Left + bounds.Right) / 2.0;
+        var centerYScene = (bounds.Top + bounds.Bottom) / 2.0;
+        var offset = new UnityNavicharaVector2
+        {
+            X = -centerX,
+            Y = centerYScene,
+        };
+
+        diagnostics.Add(new UnityNavicharaDiagnostic
+        {
+            Severity = "info",
+            Code = "AutoCenterApplied",
+            Message = $"Auto-centered character: bind bounds x[{bounds.Left:0.#},{bounds.Right:0.#}] y[{bounds.Top:0.#},{bounds.Bottom:0.#}] -> rootTransform.offset ({offset.X:0.#}, {offset.Y:0.#}).",
+        });
+
+        return new UnityNavicharaSettings
+        {
+            SampleRate = settings.SampleRate,
+            CoordinateSystem = settings.CoordinateSystem,
+            RotationZMultiplier = settings.RotationZMultiplier,
+            PixelsPerUnit = settings.PixelsPerUnit,
+            CurveBakeMode = settings.CurveBakeMode,
+            PreserveSourceCoordinates = settings.PreserveSourceCoordinates,
+            RootTransform = new UnityNavicharaRootTransform
+            {
+                Scale = settings.RootTransform.Scale,
+                Offset = offset,
+            },
         };
     }
 

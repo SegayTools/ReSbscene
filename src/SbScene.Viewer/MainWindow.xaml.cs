@@ -1,12 +1,10 @@
 using System.Globalization;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Threading;
 using Microsoft.Win32;
 using SbScene.Core.Rendering;
 using SbScene.Core.Semantics;
@@ -16,7 +14,6 @@ namespace SbScene.Viewer;
 public partial class MainWindow : Window
 {
     private const double PlaybackFramesPerSecond = 60.0;
-    private const double PlaybackRenderFramesPerSecond = 30.0;
 
     private SbSceneFile? _scene;
     private SceneRenderBuildCache? _renderBuildCache;
@@ -30,14 +27,14 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _shownNodeIndexes = [];
     private HashSet<int>? _selectedNodeIndexes;
     private int? _selectedNodeIndex;
-    private readonly DispatcherTimer _playbackTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(1000.0 / PlaybackRenderFramesPerSecond) };
-    private readonly Stopwatch _playbackClock = new();
-    private readonly Stopwatch _playbackUiClock = new();
     private readonly List<AnimationListItem> _animationItems = [];
     private readonly List<AnimationPlaybackSlot> _animationSlots = [];
     private bool _isUpdatingAnimationControls;
     private int? _selectedAnimationIndex;
     private int? _previewAnimationIndex;
+    private bool _isPlaybackRenderingHooked;
+    private TimeSpan? _playbackRenderingStartTime;
+    private double _playbackStartFrame;
     private double _currentFrame;
     private double _endFrame;
     private bool _isPlaying;
@@ -46,13 +43,13 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        _playbackTimer.Tick += PlaybackTimer_Tick;
         _controlsReady = true;
         SetZoom(1);
         UpdateAnimationControls();
         UpdateSelectedNodeInfo();
         SetStatus("就绪。");
         Loaded += MainWindow_Loaded;
+        Closed += MainWindow_Closed;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -71,6 +68,11 @@ public partial class MainWindow : Window
             SvoSummaryTextBlock.Text = $"预选 SVO：{Path.GetFileName(svoPath)}";
             SetStatus("已记录 SVO，打开 sbscene 后会尝试绑定。");
         }
+    }
+
+    private void MainWindow_Closed(object? sender, EventArgs e)
+    {
+        DetachPlaybackRendering();
     }
 
     private async void OpenScene_Click(object sender, RoutedEventArgs e)
@@ -162,16 +164,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        _currentFrame = Math.Clamp(e.NewValue, 0, _endFrame);
-        ActivateSelectedAnimationPreview();
-        UpdateSelectedAnimationSlot();
-        if (!IsStaticSelectorSlot(_selectedAnimationIndex))
-        {
-            PausePlayback(updateControls: false);
-        }
-
-        UpdateAnimationControls(updateSlider: false);
-        RebuildRender(fitSelectionPreview: false);
+        SeekSelectedAnimationFrame(
+            e.NewValue,
+            pauseNonStaticPlayback: true,
+            updateSlider: false,
+            updateDetails: true);
     }
 
     private void PlayAnimation_Click(object sender, RoutedEventArgs e)
@@ -427,7 +424,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void PlaybackTimer_Tick(object? sender, EventArgs e)
+    private void PlaybackRendering(object? sender, EventArgs e)
     {
         if (!_isPlaying || _scene is null || _animationSlots.Count == 0)
         {
@@ -435,29 +432,25 @@ public partial class MainWindow : Window
             return;
         }
 
-        var elapsedSeconds = _playbackClock.Elapsed.TotalSeconds;
-        _playbackClock.Restart();
+        if (e is not RenderingEventArgs renderingArgs)
+        {
+            return;
+        }
+
+        var renderingTime = renderingArgs.RenderingTime;
+        _playbackRenderingStartTime ??= renderingTime;
+        var elapsedSeconds = (renderingTime - _playbackRenderingStartTime.Value).TotalSeconds;
         if (elapsedSeconds <= 0)
         {
             return;
         }
 
-        var advanced = AdvanceActiveAnimationSlots(elapsedSeconds * PlaybackFramesPerSecond);
-        SyncSelectedAnimationFieldsFromSlot();
-        if (!advanced)
+        var timelineFrame = _playbackStartFrame + elapsedSeconds * PlaybackFramesPerSecond;
+        var shouldContinue = SeekSelectedPlaybackFrame(timelineFrame);
+        if (!shouldContinue)
         {
             PausePlayback();
-            RebuildRender(fitSelectionPreview: false, updateDetails: false);
-            return;
         }
-
-        if (_playbackUiClock.ElapsedMilliseconds >= 100)
-        {
-            UpdateAnimationFrameDisplay();
-            _playbackUiClock.Restart();
-        }
-
-        RebuildRender(fitSelectionPreview: false, updateDetails: false);
     }
 
     private void StartPlayback()
@@ -485,22 +478,96 @@ public partial class MainWindow : Window
 
         UpdateSelectedAnimationSlot();
         _isPlaying = true;
-        _playbackClock.Restart();
-        _playbackUiClock.Restart();
-        _playbackTimer.Start();
+        _playbackStartFrame = _currentFrame;
+        _playbackRenderingStartTime = null;
+        AttachPlaybackRendering();
         UpdateAnimationControls();
     }
 
     private void PausePlayback(bool updateControls = true)
     {
         _isPlaying = false;
-        _playbackTimer.Stop();
-        _playbackClock.Reset();
-        _playbackUiClock.Reset();
+        DetachPlaybackRendering();
+        _playbackRenderingStartTime = null;
         if (updateControls)
         {
             UpdateAnimationControls();
         }
+    }
+
+    private void AttachPlaybackRendering()
+    {
+        if (_isPlaybackRenderingHooked)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering += PlaybackRendering;
+        _isPlaybackRenderingHooked = true;
+    }
+
+    private void DetachPlaybackRendering()
+    {
+        if (!_isPlaybackRenderingHooked)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= PlaybackRendering;
+        _isPlaybackRenderingHooked = false;
+    }
+
+    private bool SeekSelectedPlaybackFrame(double timelineFrame)
+    {
+        if (GetSelectedAnimation() is null || _selectedAnimationIndex is not int index)
+        {
+            return false;
+        }
+
+        if (IsStaticSelectorSlot(index))
+        {
+            return false;
+        }
+
+        if (_endFrame <= 0)
+        {
+            SeekSelectedAnimationFrame(0, pauseNonStaticPlayback: false, updateSlider: true, updateDetails: false);
+            return false;
+        }
+
+        var shouldContinue = true;
+        var frame = timelineFrame;
+        if (_isLooping)
+        {
+            frame = WrapFrame(frame, _endFrame);
+        }
+        else if (frame >= _endFrame)
+        {
+            frame = _endFrame;
+            shouldContinue = false;
+        }
+
+        SeekSelectedAnimationFrame(frame, pauseNonStaticPlayback: false, updateSlider: true, updateDetails: false);
+        return shouldContinue;
+    }
+
+    private void SeekSelectedAnimationFrame(double frame, bool pauseNonStaticPlayback, bool updateSlider, bool updateDetails)
+    {
+        if (GetSelectedAnimation() is null)
+        {
+            return;
+        }
+
+        _currentFrame = Math.Clamp(frame, 0, _endFrame);
+        ActivateSelectedAnimationPreview();
+        UpdateSelectedAnimationSlot();
+        if (pauseNonStaticPlayback && !IsStaticSelectorSlot(_selectedAnimationIndex))
+        {
+            PausePlayback(updateControls: false);
+        }
+
+        UpdateAnimationControls(updateSlider: updateSlider);
+        RebuildRender(fitSelectionPreview: false, updateDetails: updateDetails);
     }
 
     private void StopPlayback(bool rebuild = true)
@@ -648,32 +715,6 @@ public partial class MainWindow : Window
             LoopAnimationCheckBox.IsEnabled = hasAnimation;
             LoopAnimationCheckBox.IsChecked = hasAnimation && _isLooping;
             ResetAnimationStatesButton.IsEnabled = hasActiveAnimation;
-        }
-        finally
-        {
-            _isUpdatingAnimationControls = false;
-        }
-    }
-
-    private void UpdateAnimationFrameDisplay(bool updateSlider = true)
-    {
-        if (!_controlsReady || AnimationFrameTextBlock is null)
-        {
-            return;
-        }
-
-        var hasAnimation = GetSelectedAnimation() is not null;
-        _isUpdatingAnimationControls = true;
-        try
-        {
-            if (updateSlider && AnimationFrameSlider is not null)
-            {
-                AnimationFrameSlider.Value = Math.Clamp(_currentFrame, AnimationFrameSlider.Minimum, AnimationFrameSlider.Maximum);
-            }
-
-            AnimationFrameTextBlock.Text = hasAnimation
-                ? $"Frame {FormatFrame(_currentFrame)} / {FormatFrame(_endFrame)}"
-                : "Frame 0 / 0";
         }
         finally
         {
@@ -863,53 +904,6 @@ public partial class MainWindow : Window
             slot.Frame = 0;
             slot.IsLooping = ReadDefaultLoop(_scene.Surfboard.Animations[i]);
         }
-    }
-
-    private bool AdvanceActiveAnimationSlots(double deltaFrames)
-    {
-        if (_scene is null || deltaFrames <= 0)
-        {
-            return false;
-        }
-
-        var advanced = false;
-        var count = Math.Min(_animationSlots.Count, _scene.Surfboard.Animations.Count);
-        for (var i = 0; i < count; i++)
-        {
-            var slot = _animationSlots[i];
-            if (!IsAnimationSlotActive(slot, i) || IsStaticSelectorSlot(i))
-            {
-                continue;
-            }
-
-            var endFrame = ComputeAnimationEndFrame(_scene.Surfboard.Animations[i]);
-            if (endFrame <= 0)
-            {
-                slot.Frame = 0;
-                continue;
-            }
-
-            if (!slot.IsLooping && slot.Frame >= endFrame)
-            {
-                continue;
-            }
-
-            var nextFrame = slot.Frame + deltaFrames;
-            if (nextFrame >= endFrame)
-            {
-                slot.Frame = slot.IsLooping
-                    ? WrapFrame(nextFrame, endFrame)
-                    : endFrame;
-            }
-            else
-            {
-                slot.Frame = Math.Clamp(nextFrame, 0, endFrame);
-            }
-
-            advanced = true;
-        }
-
-        return advanced;
     }
 
     private IReadOnlyList<RenderSceneAnimationState> BuildActiveAnimationStates()

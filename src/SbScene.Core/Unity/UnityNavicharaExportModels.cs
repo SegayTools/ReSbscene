@@ -51,6 +51,12 @@ public sealed class UnityNavicharaExportOptions
     public bool WriteValidationFrames { get; init; }
 
     public bool Strict { get; init; }
+
+    /// <summary>
+    /// 自动把人物 bind 状态可见内容的包围盒中心平移到原点(写入 settings.rootTransform.offset)。
+    /// profile 显式提供非零 offset 时让位。默认开启。
+    /// </summary>
+    public bool AutoCenter { get; init; } = true;
 }
 
 public sealed record UnityNavicharaAnimationMap(string SourceAnimation, string TargetClip);
