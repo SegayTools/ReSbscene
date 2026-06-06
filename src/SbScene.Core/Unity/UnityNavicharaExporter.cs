@@ -40,7 +40,8 @@ public static class UnityNavicharaExporter
 
         var diagnostics = new List<UnityNavicharaDiagnostic>();
         var settings = BuildSettings(options);
-        settings = ApplyAutoCenter(scene, settings, options, diagnostics);
+        var baseState = BuildCommonBaseFrameState(scene, options, diagnostics);
+        settings = ApplyAutoCenter(scene, settings, options, baseState, diagnostics);
         var character = new UnityNavicharaCharacter
         {
             Id = options.CharacterId,
@@ -56,7 +57,7 @@ public static class UnityNavicharaExporter
         var imageCastsByNode = scene.Surfboard.Resources.ImageCasts
             .GroupBy(static imageCast => imageCast.CastIndex)
             .ToDictionary(static group => group.Key, static group => group.First());
-        var nodes = BuildNodes(scene, names, paths, imageCastsByNode, spritesByNodeAndSlot, settings);
+        var nodes = BuildNodes(scene, names, paths, imageCastsByNode, spritesByNodeAndSlot, settings, baseState);
         var clipPlans = BuildClipPlans(options, diagnostics);
         var clips = clipPlans
             .Select(plan => BuildClip(scene, plan, paths, imageCastsByNode, settings, diagnostics))
@@ -206,6 +207,7 @@ public static class UnityNavicharaExporter
         SbSceneFile scene,
         UnityNavicharaSettings settings,
         UnityNavicharaExportOptions options,
+        SbSceneAnimationFrameState baseState,
         List<UnityNavicharaDiagnostic> diagnostics)
     {
         if (!options.AutoCenter)
@@ -226,8 +228,8 @@ public static class UnityNavicharaExporter
             return settings;
         }
 
-        var bind = SbSceneAnimationFrameBuilder.BuildInitial(scene);
-        var bounds = SbScenePngRenderer.ComputeContentBounds(scene, bind);
+        // 包围盒基于 commonBase 烘焙后的 bind 状态,确保与静态 prefab 实际显示的部件一致。
+        var bounds = SbScenePngRenderer.ComputeContentBounds(scene, baseState);
         if (!double.IsFinite(bounds.Width) || !double.IsFinite(bounds.Height) || bounds.Width <= 0 || bounds.Height <= 0)
         {
             diagnostics.Add(new UnityNavicharaDiagnostic
@@ -270,19 +272,79 @@ public static class UnityNavicharaExporter
         };
     }
 
+    /// <summary>
+    /// 把 profile 的 commonBaseSourceSlots 中的固定帧 slot 应用到 bind frame state,
+    /// 作为 prefab 静态 bind 的烘焙结果。curve slot 不参与静态烘焙(它们只在 clip 里驱动)。
+    /// 无 commonBase 时返回纯 bind 初始状态。
+    /// </summary>
+    private static SbSceneAnimationFrameState BuildCommonBaseFrameState(
+        SbSceneFile scene,
+        UnityNavicharaExportOptions options,
+        List<UnityNavicharaDiagnostic> diagnostics)
+    {
+        var state = SbSceneAnimationFrameBuilder.BuildInitial(scene);
+        var selections = BuildCommonBaseSelections(options);
+        if (selections.Count == 0)
+        {
+            return state;
+        }
+
+        SbSceneAnimationFrameBuilder.ApplyAnimations(scene, state, selections, warning =>
+            diagnostics.Add(new UnityNavicharaDiagnostic
+            {
+                Severity = "warning",
+                Code = "CommonBaseSlotWarning",
+                Message = warning,
+            }));
+        return state;
+    }
+
+    /// <summary>
+    /// 从 commonBaseSourceSlots 取固定帧 slot,转成 frame state 的动画选择。curve slot 被忽略。
+    /// </summary>
+    private static IReadOnlyList<SbSceneAnimationSelection> BuildCommonBaseSelections(UnityNavicharaExportOptions options)
+    {
+        var commonBase = options.Profile?.CommonBaseSourceSlots;
+        if (commonBase is null || commonBase.Count == 0)
+        {
+            return [];
+        }
+
+        var selections = new List<SbSceneAnimationSelection>();
+        foreach (var slot in commonBase)
+        {
+            if (IsCurveSlot(slot) || string.IsNullOrWhiteSpace(slot.Animation))
+            {
+                continue;
+            }
+
+            var frame = Convert.ToDouble(slot.Frame, System.Globalization.CultureInfo.InvariantCulture);
+            selections.Add(new SbSceneAnimationSelection(slot.Animation, frame) { HasExplicitFrame = true });
+        }
+
+        return selections;
+    }
+
     private static IReadOnlyList<UnityNavicharaNode> BuildNodes(
         SbSceneFile scene,
         IReadOnlyDictionary<int, string> names,
         IReadOnlyDictionary<int, string> paths,
         IReadOnlyDictionary<int, SbSceneImageCast> imageCastsByNode,
         IReadOnlyDictionary<(int NodeId, string Slot), IReadOnlyList<UnityNavicharaSprite>> spritesByNodeAndSlot,
-        UnityNavicharaSettings settings)
+        UnityNavicharaSettings settings,
+        SbSceneAnimationFrameState baseState)
     {
         var parentByNode = SbSceneRenderTree.BuildParentMap(scene.Surfboard.Nodes);
         return scene.Surfboard.Nodes.Select(node =>
         {
             var transform = node.Transform2D;
+            // commonBase 固定帧烘焙后的节点状态:作为 prefab 静态 bind 的依据,
+            // 这样不播放任何 clip 时也显示选定的服装/姿势组合。
+            var nodeState = node.Index >= 0 && node.Index < baseState.Nodes.Count ? baseState.Nodes[node.Index] : null;
             var imageCast = imageCastsByNode.TryGetValue(node.Index, out var cast) ? cast : null;
+            var imageState = imageCast is not null && imageCast.Index >= 0 && imageCast.Index < baseState.ImageCasts.Count
+                ? baseState.ImageCasts[imageCast.Index]
+                : null;
             var primarySprites = spritesByNodeAndSlot.TryGetValue((node.Index, "primary"), out var primary)
                 ? primary.Select(static sprite => sprite.Id).ToArray()
                 : [];
@@ -294,7 +356,17 @@ public static class UnityNavicharaExporter
                 : BuildUnityPivotPixels(imageCast);
             var size = imageCast is null
                 ? new UnityNavicharaVector2()
-                : new UnityNavicharaVector2 { X = imageCast.Width, Y = imageCast.Height };
+                : new UnityNavicharaVector2
+                {
+                    X = imageState?.Width ?? imageCast.Width,
+                    Y = imageState?.Height ?? imageCast.Height,
+                };
+            var defaultPrimaryIndex = imageState is not null
+                ? ClampReferenceIndex(imageState.PrimaryReferenceIndex, primarySprites.Length)
+                : ClampReferenceIndex(imageCast?.PrimaryCropReferenceIndex, primarySprites.Length);
+            var defaultSecondaryIndex = imageState is not null
+                ? ClampReferenceIndex(imageState.SecondaryReferenceIndex, secondarySprites.Length)
+                : ClampReferenceIndex(imageCast?.SecondaryCropReferenceIndex, secondarySprites.Length);
             return new UnityNavicharaNode
             {
                 Id = node.Index,
@@ -307,22 +379,24 @@ public static class UnityNavicharaExporter
                 {
                     AnchoredPosition = new UnityNavicharaVector2
                     {
-                        X = transform?.Translation?.X ?? 0,
-                        Y = ToUnityY(transform?.Translation?.Y ?? 0),
+                        X = nodeState?.TranslationX ?? transform?.Translation?.X ?? 0,
+                        Y = ToUnityY(nodeState?.TranslationY ?? transform?.Translation?.Y ?? 0),
                     },
-                    RotationZ = ToUnityRotationZ(transform?.RotationZDegreesCandidate ?? transform?.RotationZ ?? 0, settings),
+                    RotationZ = ToUnityRotationZ(nodeState?.RotationDegrees ?? transform?.RotationZDegreesCandidate ?? transform?.RotationZ ?? 0, settings),
                     Scale = new UnityNavicharaVector2
                     {
-                        X = transform?.Scale?.X ?? 1,
-                        Y = transform?.Scale?.Y ?? 1,
+                        X = nodeState?.ScaleX ?? transform?.Scale?.X ?? 1,
+                        Y = nodeState?.ScaleY ?? transform?.Scale?.Y ?? 1,
                     },
-                    Display = transform?.Display ?? true,
+                    Display = nodeState?.Display ?? transform?.Display ?? true,
                     Size = size,
                     PivotPixels = pivotPixels,
                     PivotNormalized = imageCast is null
                         ? new UnityNavicharaVector2 { X = 0.5, Y = 0.5 }
                         : BuildUnityPivotNormalized(imageCast),
-                    MaterialColor = FormatUnityGraphicColor(transform),
+                    MaterialColor = nodeState is not null
+                        ? FormatUnityGraphicColor(nodeState)
+                        : FormatUnityGraphicColor(transform),
                 },
                 Image = imageCast is null
                     ? null
@@ -333,8 +407,8 @@ public static class UnityNavicharaExporter
                         AdditiveBlend = SbSceneImageCastConventions.HasAdditiveBlendCandidate(imageCast),
                         PrimarySprites = primarySprites,
                         SecondarySprites = secondarySprites,
-                        DefaultPrimaryIndex = ClampReferenceIndex(imageCast.PrimaryCropReferenceIndex, primarySprites.Length),
-                        DefaultSecondaryIndex = ClampReferenceIndex(imageCast.SecondaryCropReferenceIndex, secondarySprites.Length),
+                        DefaultPrimaryIndex = defaultPrimaryIndex,
+                        DefaultSecondaryIndex = defaultSecondaryIndex,
                     },
             };
         }).ToArray();
@@ -532,6 +606,7 @@ public static class UnityNavicharaExporter
         UnityNavicharaExportOptions options,
         List<UnityNavicharaDiagnostic> diagnostics)
     {
+        var commonBase = options.Profile?.CommonBaseSourceSlots ?? [];
         var plans = UnityNavicharaConstants.CoreClipNames
             .Select(name =>
             {
@@ -542,7 +617,7 @@ public static class UnityNavicharaExporter
                     profileClip?.Loop ?? UnityNavicharaConstants.DefaultLoop(name),
                     ResolveDurationFrames(profileClip?.DurationFrames),
                     profileClip?.ValidationFrames,
-                    profileClip?.SourceSlots.ToList() ?? []);
+                    MergeCommonBaseSlots(commonBase, profileClip?.SourceSlots));
             })
             .ToDictionary(static plan => plan.Name, StringComparer.Ordinal);
 
@@ -1519,6 +1594,41 @@ public static class UnityNavicharaExporter
         };
     }
 
+    /// <summary>
+    /// 把全局 commonBaseSourceSlots 合并进单个 clip 的 sourceSlots,基底 slot 置于最前。
+    /// clip 自身已显式引用同一动画的 slot 优先(commonBase 中该动画被跳过),避免重复叠加。
+    /// </summary>
+    private static List<UnityNavicharaSourceSlot> MergeCommonBaseSlots(
+        IReadOnlyList<UnityNavicharaSourceSlot> commonBase,
+        IReadOnlyList<UnityNavicharaSourceSlot>? clipSlots)
+    {
+        var result = new List<UnityNavicharaSourceSlot>();
+        var clipAnimations = new HashSet<string>(
+            (clipSlots ?? []).Select(static slot => slot.Animation),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var baseSlot in commonBase)
+        {
+            if (clipAnimations.Contains(baseSlot.Animation))
+            {
+                continue;
+            }
+
+            result.Add(new UnityNavicharaSourceSlot
+            {
+                Animation = baseSlot.Animation,
+                Frame = baseSlot.Frame,
+                Repeat = baseSlot.Repeat,
+            });
+        }
+
+        if (clipSlots is not null)
+        {
+            result.AddRange(clipSlots);
+        }
+
+        return result;
+    }
+
     private static void UpsertFixedSlot(List<UnityNavicharaSourceSlot> slots, string animation, int frame)
     {
         slots.RemoveAll(slot => string.Equals(slot.Animation, animation, StringComparison.OrdinalIgnoreCase) && !IsCurveSlot(slot));
@@ -1726,6 +1836,16 @@ public static class UnityNavicharaExporter
     {
         var material = ToRgbaColor(transform?.MaterialColor, SbSceneColorConventions.OpaqueWhite);
         var illumination = ToRgbaColor(transform?.IlluminationColor, SbSceneColorConventions.OpaqueBlack);
+        return ComposeGraphicColor(material, illumination);
+    }
+
+    private static string FormatUnityGraphicColor(SbSceneNodeAnimationState nodeState)
+    {
+        return ComposeGraphicColor(nodeState.MaterialColor, nodeState.IlluminationColor);
+    }
+
+    private static string ComposeGraphicColor(RgbaColor material, RgbaColor illumination)
+    {
         var illuminationA = illumination.A / 255.0;
         var color = new RgbaColor(
             ToByteChannel(material.R / 255.0 + illumination.R / 255.0 * illuminationA),

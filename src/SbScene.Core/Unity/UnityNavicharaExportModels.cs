@@ -367,6 +367,12 @@ public sealed class UnityNavicharaExportProfile
 {
     public UnityNavicharaProfileSettings Settings { get; init; } = new();
 
+    /// <summary>
+    /// 全局基础 source slot:与 clips 同级,默认合并进每个 clip 的 sourceSlots(置于最前作为基底),
+    /// 并参与静态 bind 烘焙与 auto-center 包围盒计算。典型用途是固定服装/配饰帧,如 Change_Fashion:3。
+    /// </summary>
+    public List<UnityNavicharaSourceSlot> CommonBaseSourceSlots { get; init; } = [];
+
     public Dictionary<string, UnityNavicharaProfileClip> Clips { get; init; } = new(StringComparer.Ordinal);
 }
 
@@ -443,6 +449,7 @@ public static class UnityNavicharaProfileLoader
         var profile = new UnityNavicharaExportProfile
         {
             Settings = ReadSettings(root.TryGetProperty("settings", out var settings) ? settings : default),
+            CommonBaseSourceSlots = ReadSourceSlotArray(root, "commonBaseSourceSlots"),
             Clips = new Dictionary<string, UnityNavicharaProfileClip>(StringComparer.Ordinal),
         };
 
@@ -514,8 +521,15 @@ public static class UnityNavicharaProfileLoader
 
     private static List<UnityNavicharaSourceSlot> ReadSourceSlots(JsonElement clipElement)
     {
+        return ReadSourceSlotArray(clipElement, "sourceSlots");
+    }
+
+    private static List<UnityNavicharaSourceSlot> ReadSourceSlotArray(JsonElement element, string propertyName)
+    {
         var result = new List<UnityNavicharaSourceSlot>();
-        if (!clipElement.TryGetProperty("sourceSlots", out var slots) || slots.ValueKind != JsonValueKind.Array)
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(propertyName, out var slots)
+            || slots.ValueKind != JsonValueKind.Array)
         {
             return result;
         }

@@ -645,6 +645,166 @@ public sealed class UnityNavicharaExporterTests
         };
     }
 
+    [Fact]
+    public void CommonBaseSlotsBakeIntoStaticBindAndMergeIntoEveryClip()
+    {
+        // Node 0 bind display = true. Change_Fashion has a Display(type 11) track that hides it at frame >= 1.
+        // Node 1 bind display = true, untouched by Change_Fashion.
+        var scene = Scene(
+            [Node(0, "uniform_part"), Node(1, "plain_part")],
+            Animation(
+                "Change_Fashion",
+                endFrame: 3,
+                Motion(0, Track(11, Key(0, 1), Key(1, 0), Key(3, 0)))),
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(1, Track(0, Key(0, 0), Key(10, 5)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+        var profile = new UnityNavicharaExportProfile
+        {
+            CommonBaseSourceSlots =
+            [
+                new UnityNavicharaSourceSlot { Animation = "Change_Fashion", Frame = "3", Repeat = false },
+            ],
+            Clips =
+            {
+                ["Navi_Default"] = new UnityNavicharaProfileClip
+                {
+                    Loop = true,
+                    DurationFrames = "autoMax",
+                    SourceSlots =
+                    [
+                        new UnityNavicharaSourceSlot { Animation = "Action_Wait1", Frame = "curve" },
+                    ],
+                },
+            },
+        };
+
+        var result = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = profile,
+                AllowPlaceholderClips = true,
+                AutoCenter = false,
+            });
+
+        // Static bind: node 0 hidden by Change_Fashion:3, node 1 stays visible.
+        var node0 = Assert.Single(result.Export.Nodes.Where(node => node.Id == 0));
+        Assert.False(node0.Static.Display);
+        var node1 = Assert.Single(result.Export.Nodes.Where(node => node.Id == 1));
+        Assert.True(node1.Static.Display);
+
+        // Every core clip's sourceSlots starts with the common-base Change_Fashion:3 slot.
+        Assert.All(result.Export.Clips, clip =>
+        {
+            Assert.NotEmpty(clip.SourceSlots);
+            Assert.Equal("Change_Fashion", clip.SourceSlots[0].Animation);
+            Assert.Equal("3", clip.SourceSlots[0].Frame);
+        });
+
+        // The explicit clip slot follows the common-base slot.
+        var defaultClip = Assert.Single(result.Export.Clips.Where(clip => clip.Name == "Navi_Default"));
+        Assert.Equal(2, defaultClip.SourceSlots.Count);
+        Assert.Equal("Action_Wait1", defaultClip.SourceSlots[1].Animation);
+    }
+
+    [Fact]
+    public void CommonBaseSlotIsNotDuplicatedWhenClipAlreadyReferencesSameAnimation()
+    {
+        var scene = Scene(
+            [Node(0, "part")],
+            Animation(
+                "Change_Fashion",
+                endFrame: 3,
+                Motion(0, Track(11, Key(0, 1), Key(3, 0)))),
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(0, Track(0, Key(0, 0), Key(10, 5)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+        var profile = new UnityNavicharaExportProfile
+        {
+            CommonBaseSourceSlots =
+            [
+                new UnityNavicharaSourceSlot { Animation = "Change_Fashion", Frame = "3", Repeat = false },
+            ],
+            Clips =
+            {
+                ["Navi_Default"] = new UnityNavicharaProfileClip
+                {
+                    Loop = true,
+                    DurationFrames = "autoMax",
+                    SourceSlots =
+                    [
+                        // Clip explicitly overrides Change_Fashion to a different frame.
+                        new UnityNavicharaSourceSlot { Animation = "Change_Fashion", Frame = "1" },
+                        new UnityNavicharaSourceSlot { Animation = "Action_Wait1", Frame = "curve" },
+                    ],
+                },
+            },
+        };
+
+        var result = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = profile,
+                AllowPlaceholderClips = true,
+                AutoCenter = false,
+            });
+
+        var defaultClip = Assert.Single(result.Export.Clips.Where(clip => clip.Name == "Navi_Default"));
+        // Common-base Change_Fashion is skipped because the clip already references it; explicit frame wins.
+        Assert.Single(defaultClip.SourceSlots.Where(slot => slot.Animation == "Change_Fashion"));
+        Assert.Equal("1", defaultClip.SourceSlots.Single(slot => slot.Animation == "Change_Fashion").Frame);
+    }
+
+    [Fact]
+    public void ProfileLoaderReadsCommonBaseSourceSlots()
+    {
+        using var temp = new TemporaryDirectory();
+        var path = System.IO.Path.Combine(temp.Path, "profile.json");
+        File.WriteAllText(
+            path,
+            """
+            {
+              "settings": { "pixelsPerUnit": 1 },
+              "commonBaseSourceSlots": [
+                { "animation": "Change_Fashion", "frame": "3", "repeat": false }
+              ],
+              "clips": {
+                "Navi_Default": {
+                  "loop": true,
+                  "sourceSlots": [
+                    { "animation": "Action_Wait1", "frame": "curve" }
+                  ]
+                }
+              }
+            }
+            """);
+
+        var profile = UnityNavicharaProfileLoader.Load(path);
+
+        var slot = Assert.Single(profile.CommonBaseSourceSlots);
+        Assert.Equal("Change_Fashion", slot.Animation);
+        Assert.Equal("3", slot.Frame);
+        Assert.False(slot.Repeat ?? true);
+    }
+
     private static SbSceneFile Scene(IReadOnlyList<NodeInfo> nodes, params AnimationInfo[] animations)
     {
         return Scene(nodes, [], animations);
