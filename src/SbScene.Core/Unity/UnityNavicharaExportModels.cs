@@ -402,6 +402,8 @@ public sealed class UnityNavicharaProfileTemplate
 {
     public required UnityNavicharaProfileSettings Settings { get; init; }
 
+    public required IReadOnlyList<UnityNavicharaSourceSlot> CommonBaseSourceSlots { get; init; }
+
     public required IReadOnlyList<UnityNavicharaProfileTemplateAnimation> Animations { get; init; }
 
     public required Dictionary<string, UnityNavicharaProfileClip> Clips { get; init; }

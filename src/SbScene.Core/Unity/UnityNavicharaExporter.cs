@@ -144,6 +144,7 @@ public static class UnityNavicharaExporter
                 RotationZMultiplier = 1.0,
                 RootTransform = new UnityNavicharaRootTransform(),
             },
+            CommonBaseSourceSlots = [],
             Animations = animations,
             Clips = clips,
         };

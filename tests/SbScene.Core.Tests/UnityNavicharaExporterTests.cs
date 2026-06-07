@@ -1,3 +1,5 @@
+using System.Text.Json;
+using SbScene.Core.Output;
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
 using SbScene.Core.Unity;
@@ -146,6 +148,26 @@ public sealed class UnityNavicharaExporterTests
         Assert.Equal(15, animation.EndFrame);
         Assert.Equal("Navi_Default", animation.CandidateTargetClip);
         Assert.Equal(1, Assert.Single(animation.Tracks).TrackType);
+    }
+
+    [Fact]
+    public void BuildProfileTemplateOutputsEmptyCommonBaseSourceSlots()
+    {
+        var scene = Scene(
+            [Node(0, "Root")],
+            Animation(
+                "Action_Wait1",
+                endFrame: 15,
+                Motion(0, Track(1, Key(0, 0), Key(15, 5)))));
+
+        var template = UnityNavicharaExporter.BuildProfileTemplate(scene);
+        var json = JsonSerializer.Serialize(template, SbSceneJson.CreateOptions(indented: true));
+        using var document = JsonDocument.Parse(json);
+        var commonBaseSourceSlots = document.RootElement.GetProperty("commonBaseSourceSlots");
+
+        Assert.Empty(template.CommonBaseSourceSlots);
+        Assert.Equal(JsonValueKind.Array, commonBaseSourceSlots.ValueKind);
+        Assert.Equal(0, commonBaseSourceSlots.GetArrayLength());
     }
 
     [Fact]
