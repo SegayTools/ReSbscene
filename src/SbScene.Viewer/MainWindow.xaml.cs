@@ -1139,13 +1139,13 @@ public partial class MainWindow : Window
     {
         if (_scene is null)
         {
-            return includeCharacterDefaults ? ViewerGifExporter.BuildCharacterDefaultSelections() : [];
+            return includeCharacterDefaults ? SbSceneCharacterAnimationDefaults.BuildSelections() : [];
         }
 
         var selections = new List<SbSceneAnimationSelection>();
         if (includeCharacterDefaults)
         {
-            selections.AddRange(ViewerGifExporter.BuildCharacterDefaultSelections());
+            selections.AddRange(SbSceneCharacterAnimationDefaults.BuildSelections());
         }
 
         var usedSlots = new HashSet<int>();
