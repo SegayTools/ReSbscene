@@ -71,22 +71,9 @@ public static class SbScenePngRenderer
         ArgumentException.ThrowIfNullOrWhiteSpace(svoPath);
 
         options ??= new SbSceneRenderOptions();
-        if (options.Scale <= 0 || double.IsNaN(options.Scale) || double.IsInfinity(options.Scale))
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Render scale must be a positive finite number.");
-        }
+        SbSceneRenderOptionsValidator.Validate(options);
 
-        if (options.Padding < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Render padding must be non-negative.");
-        }
-
-        if (options.Supersample is < 1 or > 8)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Supersample factor must be between 1 and 8.");
-        }
-
-        var warningState = new RenderWarningState();
+        var warningState = new WarningCollector();
         var frameState = SbSceneAnimationFrameBuilder.Build(scene, options.Animations, warningState.Add);
         return Render(scene, svoPath, frameState, options, warningState);
     }
@@ -102,22 +89,9 @@ public static class SbScenePngRenderer
         ArgumentNullException.ThrowIfNull(frameState);
 
         options ??= new SbSceneRenderOptions();
-        if (options.Scale <= 0 || double.IsNaN(options.Scale) || double.IsInfinity(options.Scale))
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Render scale must be a positive finite number.");
-        }
+        SbSceneRenderOptionsValidator.Validate(options);
 
-        if (options.Padding < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Render padding must be non-negative.");
-        }
-
-        if (options.Supersample is < 1 or > 8)
-        {
-            throw new ArgumentOutOfRangeException(nameof(options), "Supersample factor must be between 1 and 8.");
-        }
-
-        return Render(scene, svoPath, frameState, options, new RenderWarningState());
+        return Render(scene, svoPath, frameState, options, new WarningCollector());
     }
 
     public static SbSceneRenderBounds ComputeContentBounds(
@@ -157,7 +131,7 @@ public static class SbScenePngRenderer
         string svoPath,
         SbSceneAnimationFrameState frameState,
         SbSceneRenderOptions options,
-        RenderWarningState warningState)
+        WarningCollector warningState)
     {
         var nodeStates = frameState.Nodes;
         var imageStates = frameState.ImageCasts;
@@ -221,22 +195,6 @@ public static class SbScenePngRenderer
             CandidateItemCount = layers.Count,
             Warnings = warningState.Warnings,
         };
-    }
-
-    private sealed class RenderWarningState
-    {
-        private readonly List<string> _warnings = [];
-        private readonly HashSet<string> _warningSet = new(StringComparer.Ordinal);
-
-        public IReadOnlyList<string> Warnings => _warnings;
-
-        public void Add(string warning)
-        {
-            if (_warningSet.Add(warning))
-            {
-                _warnings.Add(warning);
-            }
-        }
     }
 
     private static RgbaImage CreateImage(int width, int height, RgbaColor color)

@@ -62,7 +62,7 @@ public static class SbSceneGifRenderer
             throw new ArgumentException("Only one GIF target dimension can be specified.", nameof(gifOptions));
         }
 
-        var warningState = new GifWarningState();
+        var warningState = new WarningCollector();
         var startFrame = gifOptions.FrameRange?.StartFrame ?? 0;
         var endFrame = gifOptions.FrameRange?.EndFrame ?? SbSceneGifAnimationSampler.ResolveEndFrame(scene, renderOptions.Animations, warningState.Add);
         var frameCount = SbSceneGifAnimationSampler.GetOutputFrameCount(startFrame, endFrame, gifOptions.Fps);
@@ -128,19 +128,4 @@ public static class SbSceneGifRenderer
         };
     }
 
-    private sealed class GifWarningState
-    {
-        private readonly List<string> _warnings = [];
-        private readonly HashSet<string> _warningSet = new(StringComparer.Ordinal);
-
-        public IReadOnlyList<string> Warnings => _warnings;
-
-        public void Add(string warning)
-        {
-            if (_warningSet.Add(warning))
-            {
-                _warnings.Add(warning);
-            }
-        }
-    }
 }
