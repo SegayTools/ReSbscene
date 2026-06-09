@@ -4,6 +4,15 @@ using SbScene.Core.Vtbf;
 
 namespace SbScene.Core.Semantics;
 
+/// <summary>
+/// 提供sbscene 场景解析器，负责把原始文件或字节流转换为强类型模型。
+/// </summary>
+/// <example>
+/// <code>
+/// var scene = new SbSceneParser().ParseFile("scene.sbscene");
+/// Console.WriteLine(scene.Summary.NodeCount);
+/// </code>
+/// </example>
 public sealed partial class SbSceneParser
 {
     private static readonly ISet<string> StructuralTags = new HashSet<string>(StringComparer.Ordinal)
@@ -17,6 +26,17 @@ public sealed partial class SbSceneParser
         "CAST",
     };
 
+    /// <summary>
+    /// 解析文件，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
+    /// <example>
+    /// <code>
+    /// var file = new SbSceneParser().ParseFile("scene.sbscene");
+    /// Console.WriteLine(file.Surfboard.Animations.Count);
+    /// </code>
+    /// </example>
     public SbSceneFile ParseFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -46,6 +66,11 @@ public sealed partial class SbSceneParser
         };
     }
 
+    /// <summary>
+    /// 分析解析后的场景模型并生成汇总信息，供 inspect 和 JSON 输出使用。
+    /// </summary>
+    /// <param name="document">参与本次处理的文档。</param>
+    /// <returns>从 VTBF 文档汇总出的 surfboard 语义模型。</returns>
     public SurfboardModel Analyze(VtbfDocument document)
     {
         var blocks = document.Blocks.SelectMany(Flatten).ToArray();

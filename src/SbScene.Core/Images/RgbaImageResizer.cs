@@ -1,7 +1,17 @@
 namespace SbScene.Core.Images;
 
+/// <summary>
+/// 提供 RGBA 图像缩放工具，用于按目标尺寸或保持比例重采样图像。
+/// </summary>
 public static class RgbaImageResizer
 {
+    /// <summary>
+    /// 处理Proportional 的尺寸或区域，生成新的图像结果。
+    /// </summary>
+    /// <param name="images">参与本次处理的图像或输入对象。</param>
+    /// <param name="targetWidth">目标宽度或参与尺寸计算的宽度。</param>
+    /// <param name="targetHeight">目标高度或参与尺寸计算的高度。</param>
+    /// <returns>处理尺寸或区域后的图像。</returns>
     public static IReadOnlyList<RgbaImage> ResizeProportional(
         IReadOnlyList<RgbaImage> images,
         int? targetWidth,
@@ -17,6 +27,14 @@ public static class RgbaImageResizer
         return images.Select(image => ResizeBilinear(image, width, height)).ToArray();
     }
 
+    /// <summary>
+    /// 根据单边目标尺寸计算等比例缩放后的输出尺寸。
+    /// </summary>
+    /// <param name="sourceWidth">源图像宽度。</param>
+    /// <param name="sourceHeight">源图像高度。</param>
+    /// <param name="targetWidth">调用方请求的目标宽度；指定时会按比例推导高度。</param>
+    /// <param name="targetHeight">调用方请求的目标高度；指定时会按比例推导宽度。</param>
+    /// <returns>保持源图像比例后的输出宽高。</returns>
     public static (int Width, int Height) ResolveProportionalSize(
         int sourceWidth,
         int sourceHeight,
@@ -47,6 +65,13 @@ public static class RgbaImageResizer
         return (sourceWidth, sourceHeight);
     }
 
+    /// <summary>
+    /// 处理Bilinear 的尺寸或区域，生成新的图像结果。
+    /// </summary>
+    /// <param name="input">参与本次处理的图像或输入对象。</param>
+    /// <param name="width">目标宽度或参与尺寸计算的宽度。</param>
+    /// <param name="height">目标高度或参与尺寸计算的高度。</param>
+    /// <returns>处理尺寸或区域后的图像。</returns>
     public static RgbaImage ResizeBilinear(RgbaImage input, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(input);

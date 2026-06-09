@@ -4,23 +4,47 @@ using AssetsTools.NET.Extra;
 namespace NavigationCharacterPatcher;
 
 /// <summary>
-/// 加载 prefab 的 AssetBundle，把引用指定脚本（默认 NavigationCharacter）的 MonoBehaviour
-/// 的 <c>m_Script.m_PathID</c> 改成目标值，再按所选压缩方式重打包成新的 ab。
+/// 提供 NavigationCharacter 脚本引用修补器，用于改写 AssetBundle 中 MonoBehaviour 的脚本 PathID。
 /// </summary>
 public sealed class NavigationCharacterScriptPatcher
 {
-    /// <summary>SDEZ 工程内 NavigationCharacter 脚本的目标 PathID。</summary>
+    /// <summary>
+    /// 表示默认Script路径标识，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// </summary>
     public const long DefaultScriptPathId = 1119486627253801066L;
 
+    /// <summary>
+    /// 表示默认ScriptClass名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public const string DefaultScriptClassName = "NavigationCharacter";
 
     private readonly Action<string> _log;
 
+    /// <summary>
+    /// 初始化Navigation角色信息ScriptPatcher 实例，并保存调用方提供的核心数据。
+    /// </summary>
+    /// <param name="log">接收诊断日志或非致命警告的回调。</param>
     public NavigationCharacterScriptPatcher(Action<string>? log = null)
     {
         _log = log ?? (_ => { });
     }
 
+    /// <summary>
+    /// 改写 AssetBundle 中 NavigationCharacter 的 MonoBehaviour 脚本引用，并返回写出统计。
+    /// </summary>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含目标脚本 PathID、改写数量、输出状态和压缩方式的修补结果。</returns>
+    /// <example>
+    /// <code>
+    /// var patcher = new NavigationCharacterScriptPatcher(Console.WriteLine);
+    /// var result = patcher.Patch(new PatchOptions
+    /// {
+    ///     InputPath = "UI_Navichara_27.ab",
+    ///     OutputPath = "UI_Navichara_27.patched.ab",
+    /// });
+    /// Console.WriteLine(result.ModifiedCount);
+    /// </code>
+    /// </example>
     public PatchResult Patch(PatchOptions options)
     {
         if (!File.Exists(options.InputPath))

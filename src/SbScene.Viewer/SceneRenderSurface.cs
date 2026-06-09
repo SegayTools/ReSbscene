@@ -7,6 +7,9 @@ namespace SbScene.Viewer;
 
 internal sealed class SceneRenderSurface : FrameworkElement
 {
+    /// <summary>
+    /// 表示场景透明边距，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public const double ScenePadding = 80;
 
     private static readonly Brush SurfaceBrush = new SolidColorBrush(Color.FromRgb(238, 242, 246));
@@ -28,6 +31,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
     private bool _showAxes = true;
     private bool _showSelectionBounds = false;
 
+    /// <summary>
+    /// 获取或设置场景，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// </summary>
     public RenderScene? Scene
     {
         get => _scene;
@@ -54,10 +60,16 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取Surface大小，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public Size SurfaceSize => _scene is null
         ? new Size(960, 640)
         : CreateSurfaceSize(GetViewportBounds(_scene));
 
+    /// <summary>
+    /// 获取或设置Highlighted节点索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public int? HighlightedNodeIndex
     {
         get => _highlightedNodeIndexes.Count == 1 ? _highlightedNodeIndexes.First() : null;
@@ -69,6 +81,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置PrimaryHighlighted节点索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public int? PrimaryHighlightedNodeIndex
     {
         get => _primaryHighlightedNodeIndex;
@@ -79,6 +94,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置Highlighted节点Indexes，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlySet<int> HighlightedNodeIndexes
     {
         get => _highlightedNodeIndexes;
@@ -89,6 +107,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置是否显示Selection边界，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public bool ShowSelectionBounds
     {
         get => _showSelectionBounds;
@@ -104,6 +125,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置居中内容Horizontally，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public bool CenterContentHorizontally
     {
         get => _centerContentHorizontally;
@@ -119,6 +143,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置是否显示Grid，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public bool ShowGrid
     {
         get => _showGrid;
@@ -134,6 +161,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置是否显示Axes，用于控制对应功能开关，调用方可据此改变解析、渲染或导出策略。
+    /// </summary>
     public bool ShowAxes
     {
         get => _showAxes;
@@ -149,6 +179,9 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 获取或设置Zoom，用于表达该模型在解析、渲染或导出流程中的具体业务含义。
+    /// </summary>
     public double Zoom
     {
         get => _zoom;
@@ -160,11 +193,17 @@ internal sealed class SceneRenderSurface : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// 清除当前视口边界缓存，强制下次渲染重新计算画布范围。
+    /// </summary>
     public void ClearViewportBounds()
     {
         _viewportBounds = null;
     }
 
+    /// <summary>
+    /// 捕获当前内容边界，供缩放、导出或视口保持逻辑复用。
+    /// </summary>
     public void CaptureCurrentContentBounds()
     {
         var oldSize = SurfaceSize;
@@ -177,6 +216,11 @@ internal sealed class SceneRenderSurface : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>
+    /// 按屏幕坐标命中测试节点，用于 Viewer 选择预览。
+    /// </summary>
+    /// <param name="surfacePoint">渲染表面坐标系中的鼠标或命中测试位置。</param>
+    /// <returns>计算得到的数值。</returns>
     public int? HitTestNode(Point surfacePoint)
     {
         if (Scene is null)

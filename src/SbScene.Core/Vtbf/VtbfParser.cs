@@ -3,6 +3,15 @@ using System.Text;
 
 namespace SbScene.Core.Vtbf;
 
+/// <summary>
+/// 提供VTBF解析器，负责把原始文件或字节流转换为强类型模型。
+/// </summary>
+/// <example>
+/// <code>
+/// var document = VtbfParser.ParseFile("scene.sbscene");
+/// Console.WriteLine(document.Blocks.Count);
+/// </code>
+/// </example>
 public sealed class VtbfParser
 {
     private const int RootHeaderSize = 4;
@@ -14,14 +23,38 @@ public sealed class VtbfParser
     private readonly List<string> _warnings = [];
     private ReadOnlyMemory<byte> _buffer;
 
+    /// <summary>
+    /// 解析文件，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
+    /// <example>
+    /// <code>
+    /// var document = VtbfParser.ParseFile("scene.sbscene");
+    /// foreach (var block in document.Blocks)
+    /// {
+    ///     Console.WriteLine(block.Tag);
+    /// }
+    /// </code>
+    /// </example>
     public static VtbfDocument ParseFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return new VtbfParser().Parse(File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// 解析字节数组中的 VTBF 文档，生成块、字段和诊断信息。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public VtbfDocument Parse(byte[] data) => Parse((ReadOnlyMemory<byte>)data);
 
+    /// <summary>
+    /// 解析内存中的 VTBF 文档，保留源字节范围和非致命警告。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public VtbfDocument Parse(ReadOnlyMemory<byte> data)
     {
         _warnings.Clear();

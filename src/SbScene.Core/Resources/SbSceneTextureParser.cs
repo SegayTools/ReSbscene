@@ -5,16 +5,30 @@ using SbScene.Core.Vtbf;
 
 namespace SbScene.Core.Resources;
 
+/// <summary>
+/// 提供sbscene 场景纹理解析器，负责把原始文件或字节流转换为强类型模型。
+/// </summary>
 public static class SbSceneTextureParser
 {
     private static readonly Encoding ShiftJisStrict = CreateShiftJisStrictEncoding();
 
+    /// <summary>
+    /// 解析资源Map，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="sbscenePath">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SbSceneResourceMap ParseResourceMap(string sbscenePath)
     {
         var file = new SbSceneParser().ParseFile(sbscenePath);
         return ParseResourceMap(file.Vtbf, file.Surfboard.Nodes);
     }
 
+    /// <summary>
+    /// 解析资源Map，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="document">参与本次处理的文档。</param>
+    /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SbSceneResourceMap ParseResourceMap(VtbfDocument document, IReadOnlyList<NodeInfo> nodes)
     {
         var textureList = ParseTextureList(document);
@@ -42,12 +56,22 @@ public static class SbSceneTextureParser
         };
     }
 
+    /// <summary>
+    /// 解析纹理Atlases，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="sbscenePath">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SbSceneTextureAtlas> ParseTextureAtlases(string sbscenePath)
     {
         var document = VtbfParser.ParseFile(sbscenePath);
         return ParseTextureAtlases(document);
     }
 
+    /// <summary>
+    /// 解析纹理Atlases，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="document">参与本次处理的文档。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SbSceneTextureAtlas> ParseTextureAtlases(VtbfDocument document)
     {
         var blocks = document.Blocks.SelectMany(Flatten).OrderBy(static block => block.Offset).ToArray();
@@ -104,6 +128,13 @@ public static class SbSceneTextureParser
         return atlases;
     }
 
+    /// <summary>
+    /// 解析图像Casts，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="document">参与本次处理的文档。</param>
+    /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+    /// <param name="atlases">已解析的纹理 atlas 集合，用于解析 crop 引用和图像来源。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SbSceneImageCast> ParseImageCasts(
         VtbfDocument document,
         IReadOnlyList<NodeInfo> nodes,
@@ -639,22 +670,50 @@ public static class SbSceneTextureParser
 
     private sealed class PendingAtlas
     {
+        /// <summary>
+        /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int Index { get; init; }
 
+        /// <summary>
+        /// 获取或设置文件内偏移，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required long Offset { get; init; }
 
+        /// <summary>
+        /// 获取或设置名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+        /// </summary>
         public required string Name { get; init; }
 
+        /// <summary>
+        /// 获取或设置宽度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required int Width { get; init; }
 
+        /// <summary>
+        /// 获取或设置高度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required int Height { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field62 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field62 { get; init; }
 
+        /// <summary>
+        /// 获取或设置DeclaredCrop数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
+        /// </summary>
         public required int DeclaredCropCount { get; init; }
 
+        /// <summary>
+        /// 表示Crops，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+        /// </summary>
         public List<SbSceneCropRect> Crops { get; } = [];
 
+        /// <summary>
+        /// 格式化Atlas，将模型转换为可展示、保存或比较的文本内容。
+        /// </summary>
+        /// <returns>格式化后的文本内容。</returns>
         public SbSceneTextureAtlas ToAtlas()
         {
             return new SbSceneTextureAtlas
@@ -678,40 +737,94 @@ public static class SbSceneTextureParser
 
     private sealed class PendingImageCast
     {
+        /// <summary>
+        /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int Index { get; init; }
 
+        /// <summary>
+        /// 获取或设置文件内偏移，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required long Offset { get; init; }
 
+        /// <summary>
+        /// 获取或设置图像CastFlags，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int ImageCastFlags { get; init; }
 
+        /// <summary>
+        /// 获取或设置Cast索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int CastIndex { get; init; }
 
+        /// <summary>
+        /// 获取或设置宽度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required float Width { get; init; }
 
+        /// <summary>
+        /// 获取或设置高度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required float Height { get; init; }
 
+        /// <summary>
+        /// 获取或设置轴心X，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required float PivotX { get; init; }
 
+        /// <summary>
+        /// 获取或设置轴心Y，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required float PivotY { get; init; }
 
+        /// <summary>
+        /// 获取或设置Crop索引值集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required IReadOnlyList<int> CropIndexValues { get; init; }
 
+        /// <summary>
+        /// 获取或设置CropRef数量统计，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+        /// </summary>
         public required IReadOnlyList<int> CropRefCounts { get; init; }
 
+        /// <summary>
+        /// 获取或设置Crop引用GroupsRead，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public int CropReferenceGroupsRead { get; set; }
 
+        /// <summary>
+        /// 表示PrimaryCrop引用集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public List<SbSceneCropReference> PrimaryCropReferences { get; } = [];
 
+        /// <summary>
+        /// 表示SecondaryCrop引用集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public List<SbSceneCropReference> SecondaryCropReferences { get; } = [];
 
+        /// <summary>
+        /// 表示TotalCrop引用数量，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public int TotalCropReferenceCount => PrimaryCropReferences.Count + SecondaryCropReferences.Count;
 
+        /// <summary>
+        /// 表示PrimaryCrop引用数量，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public int PrimaryCropReferenceCount => CropRefCounts.Count > 0 ? CropRefCounts[0] : 0;
 
+        /// <summary>
+        /// 表示SecondaryCrop引用数量，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public int SecondaryCropReferenceCount => CropRefCounts.Count > 1 ? CropRefCounts[1] : 0;
 
+        /// <summary>
+        /// 表示HasReadExpectedCrop引用Groups，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public bool HasReadExpectedCropReferenceGroups => CropReferenceGroupsRead >= ExpectedCropReferenceGroupCount;
 
+        /// <summary>
+        /// 获取或设置ExpectedCrop引用Group数量，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public int ExpectedCropReferenceGroupCount
         {
             get
@@ -731,6 +844,10 @@ public static class SbSceneTextureParser
             }
         }
 
+        /// <summary>
+        /// 移动到下一个裁剪引用组，用于解析连续的 SVO crop 引用数据。
+        /// </summary>
+        /// <returns>生成的条目集合。</returns>
         public List<SbSceneCropReference> NextCropReferenceGroup()
         {
             if (PrimaryCropReferenceCount > 0 && CropReferenceGroupsRead == 0)
@@ -741,6 +858,12 @@ public static class SbSceneTextureParser
             return SecondaryCropReferences;
         }
 
+        /// <summary>
+        /// 格式化图像Cast，将模型转换为可展示、保存或比较的文本内容。
+        /// </summary>
+        /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+        /// <param name="atlases">已解析的纹理 atlas 集合，用于补全 image cast 与裁剪图的关联。</param>
+        /// <returns>格式化后的文本内容。</returns>
         public SbSceneImageCast ToImageCast(IReadOnlyList<NodeInfo> nodes, IReadOnlyList<SbSceneTextureAtlas> atlases)
         {
             _ = atlases;
@@ -785,70 +908,171 @@ public static class SbSceneTextureParser
 
     private sealed class PendingCnumRecord
     {
+        /// <summary>
+        /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int Index { get; init; }
 
+        /// <summary>
+        /// 获取或设置文件内偏移，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required long Offset { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field44Count 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field44Count { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field48 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field48 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field51 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field51 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field40 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field40 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field42 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field42 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field43 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field43 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field39Colors 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public required IReadOnlyList<ColorArgbValue> Field39Colors { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field39RawHexValues 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public required IReadOnlyList<string> Field39RawHexValues { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA0 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA0 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA1 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public string? FieldA1 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA1RawHex 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public string? FieldA1RawHex { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA2 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA2 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA3 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA3 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA4 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA4 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA5 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA5 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA6 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA6 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA7 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA7 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA8 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA8 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldA9 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldA9 { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAA 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldAA { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAB 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldAB { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAC 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldAC { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAD 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? FieldAD { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAERawHex 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public string? FieldAERawHex { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAEFloatValues 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public required IReadOnlyList<float> FieldAEFloatValues { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAFRawHex 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public string? FieldAFRawHex { get; init; }
 
+        /// <summary>
+        /// 获取或设置FieldAFPackedValues 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public required IReadOnlyList<int> FieldAFPackedValues { get; init; }
 
+        /// <summary>
+        /// 获取或设置Zero字节长度Marker字段Ids，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required IReadOnlyList<int> ZeroLengthMarkerFieldIds { get; init; }
 
+        /// <summary>
+        /// 获取或设置字段明细集合，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+        /// </summary>
         public required IReadOnlyList<FieldValueSummary> Fields { get; init; }
 
+        /// <summary>
+        /// 表示Crop引用集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public List<SbSceneCropReference> CropReferences { get; } = [];
 
+        /// <summary>
+        /// 格式化CnumRecord，将模型转换为可展示、保存或比较的文本内容。
+        /// </summary>
+        /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+        /// <returns>格式化后的文本内容。</returns>
         public SbSceneCnumRecord ToCnumRecord(IReadOnlyList<NodeInfo> nodes)
         {
             var nodeName = Field51 is >= 0 && Field51 < nodes.Count ? nodes[Field51.Value].Name : null;
@@ -894,42 +1118,101 @@ public static class SbSceneTextureParser
 
     private sealed class PendingSliceCast
     {
+        /// <summary>
+        /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required int Index { get; init; }
 
+        /// <summary>
+        /// 获取或设置文件内偏移，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required long Offset { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field44Count 字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field44Count { get; init; }
 
+        /// <summary>
+        /// 获取或设置目标索引，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+        /// </summary>
         public int? TargetIndex { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field40 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field40 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field41 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field41 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field42 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field42 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field43 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field43 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field80 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field80 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field81 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field81 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field82 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field82 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field84 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field84 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field85 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public int? Field85 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field86 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field86 { get; init; }
 
+        /// <summary>
+        /// 获取或设置Field87 未命名字段，用于保留尚未命名的源格式字段，保证 inspect 和 JSON 输出不丢失原始信息。
+        /// </summary>
         public float? Field87 { get; init; }
 
+        /// <summary>
+        /// 获取或设置字段明细集合，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+        /// </summary>
         public required IReadOnlyList<FieldValueSummary> Fields { get; init; }
 
+        /// <summary>
+        /// 表示Slices，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+        /// </summary>
         public List<SbSceneSliceRecord> Slices { get; } = [];
 
+        /// <summary>
+        /// 表示Crop引用集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public List<SbSceneCropReference> CropReferences { get; } = [];
 
+        /// <summary>
+        /// 格式化SliceCast，将模型转换为可展示、保存或比较的文本内容。
+        /// </summary>
+        /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+        /// <returns>格式化后的文本内容。</returns>
         public SbSceneSliceCast ToSliceCast(IReadOnlyList<NodeInfo> nodes)
         {
             var nodeName = TargetIndex is >= 0 && TargetIndex < nodes.Count ? nodes[TargetIndex.Value].Name : null;
@@ -962,8 +1245,14 @@ public static class SbSceneTextureParser
 
     private sealed class TextureListInfo
     {
+        /// <summary>
+        /// 获取或设置名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+        /// </summary>
         public string? Name { get; init; }
 
+        /// <summary>
+        /// 获取或设置Declared纹理数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
+        /// </summary>
         public int? DeclaredTextureCount { get; init; }
     }
 }

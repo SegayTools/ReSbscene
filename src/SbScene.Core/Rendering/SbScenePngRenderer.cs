@@ -4,67 +4,166 @@ using SbScene.Core.Semantics;
 
 namespace SbScene.Core.Rendering;
 
+/// <summary>
+/// 表示sbscene 场景Render选项，集中描述调用方可配置的输入、开关和默认策略。
+/// </summary>
 public sealed class SbSceneRenderOptions
 {
+    /// <summary>
+    /// 表示透明边距，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public int Padding { get; init; } = 80;
 
+    /// <summary>
+    /// 表示输出缩放比例，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double Scale { get; init; } = 1.0;
 
+    /// <summary>
+    /// 表示内部超采样倍数，用于表达该模型在解析、渲染或导出流程中的具体业务含义。
+    /// </summary>
     public int Supersample { get; init; } = 1;
 
+    /// <summary>
+    /// 表示纹理采样方式，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public SbSceneTextureSampling TextureSampling { get; init; } = SbSceneTextureSampling.Nearest;
 
+    /// <summary>
+    /// 表示输出背景颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public RgbaColor BackgroundColor { get; init; } = RgbaColor.Transparent;
 
+    /// <summary>
+    /// 获取或设置隐藏节点渲染开关，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public bool ShowHiddenNodes { get; init; }
 
+    /// <summary>
+    /// 获取或设置secondary 图像引用渲染开关，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public bool RenderSecondaryImages { get; init; }
 
+    /// <summary>
+    /// 表示动画集合，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
+    /// </summary>
     public IReadOnlyList<SbSceneAnimationSelection> Animations { get; init; } = Array.Empty<SbSceneAnimationSelection>();
 
+    /// <summary>
+    /// 获取或设置内容边界覆盖值，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public SbSceneRenderBounds? ContentBounds { get; init; }
 }
 
+/// <summary>
+/// 定义sbscene 场景纹理Sampling 的可选值，供调用方选择解析、渲染或导出策略。
+/// </summary>
 public enum SbSceneTextureSampling
 {
     Nearest,
     Bilinear,
 }
 
+/// <summary>
+/// 表示动画选择请求，记录动画名称以及要采样的帧号。
+/// </summary>
+/// <param name="Name">要查找、匹配或写入输出的名称。</param>
+/// <param name="Frame">要采样或渲染的动画帧位置。</param>
 public sealed record SbSceneAnimationSelection(string Name, double Frame)
 {
+    /// <summary>
+    /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public int? Index { get; init; }
 
+    /// <summary>
+    /// 获取或设置HasExplicit帧，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
+    /// </summary>
     public bool HasExplicitFrame { get; init; }
 }
 
+/// <summary>
+/// 表示 RGBA 颜色值，用于渲染背景、材质和像素写出。
+/// </summary>
+/// <param name="R">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="G">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="B">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="A">参与颜色、透明度或混合计算的通道值。</param>
 public readonly record struct RgbaColor(byte R, byte G, byte B, byte A)
 {
+    /// <summary>
+    /// 表示完全透明颜色值，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public static RgbaColor Transparent { get; } = new(0, 0, 0, 0);
 }
 
+/// <summary>
+/// 表示sbscene 场景Render结果，封装处理产物、统计信息和诊断状态。
+/// </summary>
 public sealed class SbSceneRenderResult
 {
+    /// <summary>
+    /// 获取或设置图像，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required RgbaImage Image { get; init; }
 
+    /// <summary>
+    /// 获取或设置实际绘制图层数量，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public required int RenderedItemCount { get; init; }
 
+    /// <summary>
+    /// 获取或设置候选绘制图层数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
+    /// </summary>
     public required int CandidateItemCount { get; init; }
 
+    /// <summary>
+    /// 获取或设置非致命警告列表，用于把非致命问题返回给调用方，便于诊断解析、渲染或导出过程。
+    /// </summary>
     public required IReadOnlyList<string> Warnings { get; init; }
 }
 
+/// <summary>
+/// 表示渲染内容边界，用于裁剪、缩放和导出尺寸计算。
+/// </summary>
+/// <param name="Left">参与几何边界、坐标或变换计算的位置值。</param>
+/// <param name="Top">参与几何边界、坐标或变换计算的位置值。</param>
+/// <param name="Right">参与几何边界、坐标或变换计算的位置值。</param>
+/// <param name="Bottom">参与几何边界、坐标或变换计算的位置值。</param>
 public readonly record struct SbSceneRenderBounds(double Left, double Top, double Right, double Bottom)
 {
+    /// <summary>
+    /// 表示宽度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double Width => Right - Left;
 
+    /// <summary>
+    /// 表示高度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double Height => Bottom - Top;
 }
 
+/// <summary>
+/// 提供sbscene 场景PNG渲染器，负责把场景和资源数据绘制为图像结果。
+/// </summary>
 public static class SbScenePngRenderer
 {
     private const double Epsilon = 0.000001;
 
+    /// <summary>
+    /// 渲染Render，把场景和资源数据绘制为调用方可写出的图像结果。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含输出图像、统计信息和诊断信息的渲染结果。</returns>
+    /// <example>
+    /// <code>
+    /// var scene = new SbSceneParser().ParseFile("scene.sbscene");
+    /// var result = SbScenePngRenderer.Render(scene, "resource.svo");
+    /// PngWriter.Write("scene.png", result.Image);
+    /// </code>
+    /// </example>
     public static SbSceneRenderResult Render(SbSceneFile scene, string svoPath, SbSceneRenderOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -78,6 +177,14 @@ public static class SbScenePngRenderer
         return Render(scene, svoPath, frameState, options, warningState);
     }
 
+    /// <summary>
+    /// 渲染Render，把场景和资源数据绘制为调用方可写出的图像结果。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="frameState">要采样或渲染的动画帧位置。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含输出图像、统计信息和诊断信息的渲染结果。</returns>
     public static SbSceneRenderResult Render(
         SbSceneFile scene,
         string svoPath,
@@ -94,6 +201,13 @@ public static class SbScenePngRenderer
         return Render(scene, svoPath, frameState, options, new WarningCollector());
     }
 
+    /// <summary>
+    /// 计算内容边界覆盖值，为渲染、动画采样或诊断输出提供数值。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="frameState">要采样或渲染的动画帧位置。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>当前帧所有可渲染内容覆盖的场景边界。</returns>
     public static SbSceneRenderBounds ComputeContentBounds(
         SbSceneFile scene,
         SbSceneAnimationFrameState frameState,
@@ -662,6 +776,13 @@ public static class SbScenePngRenderer
             _atlasImages = atlasImages;
         }
 
+        /// <summary>
+        /// 加载持久化设置或资源；读取失败时由调用方使用默认状态。
+        /// </summary>
+        /// <param name="scene">已解析的 sbscene 场景模型。</param>
+        /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+        /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
+        /// <returns>加载后的设置或资源对象。</returns>
         public static RenderResourceResolver Load(SbSceneFile scene, string svoPath, Action<string> addWarning)
         {
             var textures = SvoResourceParser.ParseFile(svoPath);
@@ -703,6 +824,12 @@ public static class SbScenePngRenderer
             return new RenderResourceResolver(scene, atlasImages);
         }
 
+        /// <summary>
+        /// 根据 crop 引用解析对应 atlas 区域，并在缺失或越界时记录警告。
+        /// </summary>
+        /// <param name="reference">用于关联节点、资源或导出条目的索引或标识。</param>
+        /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
+        /// <returns>裁剪后的 RGBA 图像；引用无效或资源缺失时返回 null。</returns>
         public RgbaImage? ResolveCrop(SbSceneCropReference reference, Action<string> addWarning)
         {
             var atlas = ResolveAtlas(reference);
@@ -767,26 +894,59 @@ public static class SbScenePngRenderer
 
     private sealed class RenderLayer
     {
+        /// <summary>
+        /// 获取或设置节点State，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required SbSceneNodeAnimationState NodeState { get; init; }
 
+        /// <summary>
+        /// 获取或设置Local矩形，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required RenderRect LocalRect { get; init; }
 
+        /// <summary>
+        /// 获取或设置World变换，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+        /// </summary>
         public required Matrix2D WorldTransform { get; init; }
 
+        /// <summary>
+        /// 获取或设置World边界，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public required RenderRect WorldBounds { get; init; }
 
+        /// <summary>
+        /// 获取或设置Effective不透明度，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public required double EffectiveOpacity { get; init; }
 
+        /// <summary>
+        /// 获取或设置颜色State，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public required SbSceneResolvedNodeColorState ColorState { get; init; }
 
+        /// <summary>
+        /// 获取或设置AdditiveBlend，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+        /// </summary>
         public required bool AdditiveBlend { get; init; }
 
+        /// <summary>
+        /// 获取或设置PackedState，用于表达该模型在解析、渲染或导出流程中的具体业务含义。
+        /// </summary>
         public required int PackedState { get; init; }
 
+        /// <summary>
+        /// 获取或设置Surface模式，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+        /// </summary>
         public required int SurfaceMode { get; init; }
 
+        /// <summary>
+        /// 获取或设置引用，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public required SbSceneCropReference Reference { get; init; }
 
+        /// <summary>
+        /// 获取或设置Secondary引用，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public SbSceneCropReference? SecondaryReference { get; init; }
     }
 
@@ -794,20 +954,48 @@ public static class SbScenePngRenderer
 
     private readonly record struct RenderRect(double Left, double Top, double Right, double Bottom)
     {
+        /// <summary>
+        /// 表示宽度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public double Width => Right - Left;
 
+        /// <summary>
+        /// 表示高度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+        /// </summary>
         public double Height => Bottom - Top;
 
+        /// <summary>
+        /// 根据四条边创建矩形边界，用于裁剪、绘制和命中测试。
+        /// </summary>
+        /// <param name="left">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="top">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="right">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="bottom">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>由四条边界组成的渲染矩形。</returns>
         public static RenderRect FromEdges(double left, double top, double right, double bottom)
         {
             return new RenderRect(left, top, right, bottom);
         }
 
+        /// <summary>
+        /// 根据左上角坐标和尺寸创建矩形边界，用于构造图层区域。
+        /// </summary>
+        /// <param name="left">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="top">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="width">目标宽度或参与尺寸计算的宽度。</param>
+        /// <param name="height">目标高度或参与尺寸计算的高度。</param>
+        /// <returns>由左上角位置和尺寸换算出的渲染矩形。</returns>
         public static RenderRect FromLeftTopWidthHeight(double left, double top, double width, double height)
         {
             return new RenderRect(left, top, left + width, top + height);
         }
 
+        /// <summary>
+        /// 判断指定坐标是否落在当前矩形内部，用于裁剪和命中测试。
+        /// </summary>
+        /// <param name="x">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="y">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>如果坐标位于矩形内部则为 true；否则为 false。</returns>
         public bool Contains(double x, double y)
         {
             return x >= Left && x < Right && y >= Top && y < Bottom;
@@ -816,6 +1004,11 @@ public static class SbScenePngRenderer
 
     private readonly record struct Matrix2D(double M11, double M12, double M21, double M22, double OffsetX, double OffsetY)
     {
+        /// <summary>
+        /// 从节点状态创建 2D 变换矩阵，用于把本地坐标映射到世界坐标。
+        /// </summary>
+        /// <param name="state">包含位移、缩放和旋转的节点动画状态。</param>
+        /// <returns>把节点本地坐标映射到父级空间的 2D 变换矩阵。</returns>
         public static Matrix2D FromTransform(SbSceneNodeAnimationState state)
         {
             var radians = SbSceneTransformConventions.ToScreenRotationDegrees(state.RotationDegrees) * Math.PI / 180.0;
@@ -830,6 +1023,12 @@ public static class SbScenePngRenderer
                 state.TranslationY);
         }
 
+        /// <summary>
+        /// 组合两个 2D 变换矩阵，用于累积父子节点变换。
+        /// </summary>
+        /// <param name="left">先应用的父级或前置变换矩阵。</param>
+        /// <param name="right">后应用的本地或子级变换矩阵。</param>
+        /// <returns>组合后可一次性应用的 2D 变换矩阵。</returns>
         public static Matrix2D Multiply(Matrix2D left, Matrix2D right)
         {
             return new Matrix2D(
@@ -841,6 +1040,12 @@ public static class SbScenePngRenderer
                 left.M12 * right.OffsetX + left.M22 * right.OffsetY + left.OffsetY);
         }
 
+        /// <summary>
+        /// 将坐标点通过矩阵变换到目标空间，用于绘制和命中测试。
+        /// </summary>
+        /// <param name="x">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="y">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>计算得到的数值。</returns>
         public Point2D Transform(double x, double y)
         {
             return new Point2D(
@@ -848,6 +1053,11 @@ public static class SbScenePngRenderer
                 M12 * x + M22 * y + OffsetY);
         }
 
+        /// <summary>
+        /// 尝试Invert，并通过返回值或输出参数报告是否成功。
+        /// </summary>
+        /// <param name="inverse">矩阵可逆时写入的逆变换矩阵。</param>
+        /// <returns>如果条件成立则为 true；否则为 false。</returns>
         public bool TryInvert(out Matrix2D inverse)
         {
             var determinant = M11 * M22 - M12 * M21;

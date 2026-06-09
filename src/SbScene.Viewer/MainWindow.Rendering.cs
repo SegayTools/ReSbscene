@@ -14,6 +14,9 @@ using SbScene.Core.Unity;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Viewer 主窗口的渲染交互部分，负责画布重建、缩放和预览刷新。
+/// </summary>
 public partial class MainWindow : Window
 {
     private void Fit_Click(object sender, RoutedEventArgs e)

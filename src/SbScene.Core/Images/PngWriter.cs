@@ -4,10 +4,24 @@ using System.Text;
 
 namespace SbScene.Core.Images;
 
+/// <summary>
+/// 提供PNG写出器，负责把内存数据编码并写入目标文件。
+/// </summary>
 public static class PngWriter
 {
     private static readonly byte[] Signature = [137, 80, 78, 71, 13, 10, 26, 10];
 
+    /// <summary>
+    /// 将 RGBA 图像编码为 PNG 文件，供渲染和导出流程写出静态帧。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="image">参与本次处理的图像或输入对象。</param>
+    /// <example>
+    /// <code>
+    /// var image = new RgbaImage(1, 1, new byte[] { 255, 255, 255, 255 });
+    /// PngWriter.Write("pixel.png", image);
+    /// </code>
+    /// </example>
     public static void Write(string path, RgbaImage image)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -76,6 +90,11 @@ public static class PngWriter
     {
         private static readonly uint[] Table = BuildTable();
 
+        /// <summary>
+        /// 计算 PNG chunk 的 CRC32 校验值，用于写出符合格式要求的数据块。
+        /// </summary>
+        /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+        /// <returns>输入字节序列对应的 CRC32 值。</returns>
         public static uint Compute(ReadOnlySpan<byte> data)
         {
             var crc = 0xFFFFFFFFu;

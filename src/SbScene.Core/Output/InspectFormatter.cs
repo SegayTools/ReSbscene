@@ -5,8 +5,16 @@ using SbScene.Core.Vtbf;
 
 namespace SbScene.Core.Output;
 
+/// <summary>
+/// 提供Inspect格式化器，负责把模型转换为可展示、保存或比较的文本。
+/// </summary>
 public static class InspectFormatter
 {
+    /// <summary>
+    /// 格式化格式，将模型转换为可展示、保存或比较的文本内容。
+    /// </summary>
+    /// <param name="file">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>格式化后的文本内容。</returns>
     public static string Format(SbSceneFile file)
     {
         var builder = new StringBuilder();

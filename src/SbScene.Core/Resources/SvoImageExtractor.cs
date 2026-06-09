@@ -4,8 +4,19 @@ using SbScene.Core.Output;
 
 namespace SbScene.Core.Resources;
 
+/// <summary>
+/// 从 SVO 资源包提取图像、裁剪图和清单，供命令行导出使用。
+/// </summary>
 public static class SvoImageExtractor
 {
+    /// <summary>
+    /// 从 SVO 中提取可渲染图像资源，并返回解码后的纹理集合。
+    /// </summary>
+    /// <param name="sbscenePath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="outputDirectory">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="writeAtlases">指示是否同时写出完整 atlas 图像；为 false 时仅写出裁剪图和清单。</param>
+    /// <returns>包含写出数量、清单路径和非致命警告的图像提取结果。</returns>
     public static ImageExtractionResult Extract(string sbscenePath, string svoPath, string outputDirectory, bool writeAtlases)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);

@@ -2,6 +2,10 @@ namespace SbScene.Core.Rendering;
 
 internal static class SbSceneRenderOptionsValidator
 {
+    /// <summary>
+    /// 验证渲染选项的边距、缩放和采样值，避免后续渲染使用无效参数。
+    /// </summary>
+    /// <param name="options">控制本次处理行为的选项。</param>
     public static void Validate(SbSceneRenderOptions options)
     {
         if (options.Scale <= 0 || double.IsNaN(options.Scale) || double.IsInfinity(options.Scale))

@@ -2,10 +2,19 @@ using SbScene.Core.Semantics;
 
 namespace SbScene.Core.Rendering;
 
+/// <summary>
+/// 提供sbscene 场景动画求值器，负责计算动画轨道在指定帧上的取值。
+/// </summary>
 public static class SbSceneAnimationEvaluator
 {
     private const double Epsilon = 0.000001;
 
+    /// <summary>
+    /// 计算动画轨道在指定帧上的插值结果。
+    /// </summary>
+    /// <param name="track">参与本次处理的轨道。</param>
+    /// <param name="frame">要采样或渲染的动画帧位置。</param>
+    /// <returns>轨道在该帧上的数值；轨道没有可用关键帧时返回 null。</returns>
     public static double? EvaluateTrack(TrackInfo track, double frame)
     {
         ArgumentNullException.ThrowIfNull(track);

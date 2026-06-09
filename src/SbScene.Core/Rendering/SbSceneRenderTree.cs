@@ -2,18 +2,35 @@ using SbScene.Core.Semantics;
 
 namespace SbScene.Core.Rendering;
 
+/// <summary>
+/// 表示节点继承后的材质色和照明色，用于渲染最终颜色。
+/// </summary>
 public sealed class SbSceneResolvedNodeColorState
 {
+    /// <summary>
+    /// 获取或设置材质颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required RgbaColor MaterialColor { get; init; }
 
+    /// <summary>
+    /// 获取或设置照明颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required RgbaColor IlluminationColor { get; init; }
 }
 
+/// <summary>
+/// 提供场景渲染树辅助方法，用于父子关系、可见性、不透明度和颜色继承计算。
+/// </summary>
 public static class SbSceneRenderTree
 {
     private const double MinOpacity = 0.0;
     private const double MaxOpacity = 1.0;
 
+    /// <summary>
+    /// 构建父级Map，为渲染、导出或诊断流程准备中间状态。
+    /// </summary>
+    /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+    /// <returns>子节点索引到父节点索引的映射。</returns>
     public static IReadOnlyDictionary<int, int> BuildParentMap(IReadOnlyList<NodeInfo> nodes)
     {
         ArgumentNullException.ThrowIfNull(nodes);
@@ -33,6 +50,14 @@ public static class SbSceneRenderTree
         return parentByNode;
     }
 
+    /// <summary>
+    /// 结合节点自身显示状态和父子层级，计算最终可见性列表。
+    /// </summary>
+    /// <param name="nodes">要计算可见性的场景节点列表。</param>
+    /// <param name="parentByNode">节点索引到父节点索引的映射。</param>
+    /// <param name="isLocallyVisible">判断单个节点自身是否可见的回调。</param>
+    /// <param name="showHiddenNodes">指示是否忽略隐藏标记并强制显示全部节点。</param>
+    /// <returns>与节点列表顺序一致的最终可见性布尔列表。</returns>
     public static IReadOnlyList<bool> BuildFinalVisibility(
         IReadOnlyList<NodeInfo> nodes,
         IReadOnlyDictionary<int, int> parentByNode,
@@ -77,6 +102,13 @@ public static class SbSceneRenderTree
         return Enumerable.Range(0, nodes.Count).Select(Resolve).ToArray();
     }
 
+    /// <summary>
+    /// 沿父子层级累乘节点不透明度，计算每个节点的最终不透明度。
+    /// </summary>
+    /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+    /// <param name="parentByNode">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="getLocalOpacity">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <returns>与节点列表顺序一致的最终不透明度列表。</returns>
     public static IReadOnlyList<double> BuildEffectiveOpacity(
         IReadOnlyList<NodeInfo> nodes,
         IReadOnlyDictionary<int, int> parentByNode,
@@ -116,6 +148,14 @@ public static class SbSceneRenderTree
         return Enumerable.Range(0, nodes.Count).Select(Resolve).ToArray();
     }
 
+    /// <summary>
+    /// 沿父子层级合成材质色和照明色，计算每个节点的最终颜色状态。
+    /// </summary>
+    /// <param name="nodes">参与本次处理的一组结构化条目。</param>
+    /// <param name="parentByNode">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="getLocalMaterialColor">参与颜色、透明度或混合计算的通道值。</param>
+    /// <param name="getLocalIlluminationColor">参与颜色、透明度或混合计算的通道值。</param>
+    /// <returns>与节点列表顺序一致的最终材质色和照明色列表。</returns>
     public static IReadOnlyList<SbSceneResolvedNodeColorState> BuildEffectiveColors(
         IReadOnlyList<NodeInfo> nodes,
         IReadOnlyDictionary<int, int> parentByNode,

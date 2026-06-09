@@ -14,6 +14,9 @@ using SbScene.Core.Unity;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Viewer 主窗口的节点树交互部分，负责节点选择、右键菜单和显隐操作。
+/// </summary>
 public partial class MainWindow : Window
 {
     private void NodeTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)

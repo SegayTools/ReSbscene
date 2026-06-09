@@ -21,12 +21,24 @@ internal sealed record RenderSceneAnimationState(AnimationInfo Animation, double
 
 internal sealed class RenderScene
 {
+    /// <summary>
+    /// 获取或设置当前场景中要绘制的图像项和节点标记项。
+    /// </summary>
     public required IReadOnlyList<RenderItem> Items { get; init; }
 
+    /// <summary>
+    /// 获取或设置内容边界覆盖值，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
+    /// </summary>
     public required Rect ContentBounds { get; init; }
 
+    /// <summary>
+    /// 获取或设置非致命警告列表，用于把非致命问题返回给调用方，便于诊断解析、渲染或导出过程。
+    /// </summary>
     public required IReadOnlyList<string> Warnings { get; init; }
 
+    /// <summary>
+    /// 获取可容纳内容边界和视图留白的渲染表面尺寸。
+    /// </summary>
     public Size SurfaceSize => new(
         Math.Max(320, ContentBounds.Width + SceneRenderSurface.ScenePadding * 2),
         Math.Max(240, ContentBounds.Height + SceneRenderSurface.ScenePadding * 2));
@@ -34,35 +46,78 @@ internal sealed class RenderScene
 
 internal sealed class RenderItem
 {
+    /// <summary>
+    /// 获取或设置节点索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required int NodeIndex { get; init; }
 
+    /// <summary>
+    /// 获取或设置节点名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string NodeName { get; init; }
 
+    /// <summary>
+    /// 获取或设置Group，用于标识分类、组件、属性或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Group { get; init; }
 
+    /// <summary>
+    /// 获取或设置类别，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Kind { get; init; }
 
+    /// <summary>
+    /// 获取或设置World变换，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required Matrix WorldTransform { get; init; }
 
+    /// <summary>
+    /// 获取或设置Local矩形，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public required Rect LocalRect { get; init; }
 
+    /// <summary>
+    /// 获取或设置World边界，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public required Rect WorldBounds { get; init; }
 
+    /// <summary>
+    /// 获取或设置Bitmap，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public BitmapSource? Bitmap { get; init; }
 
+    /// <summary>
+    /// 获取或设置Placeholder颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required Color PlaceholderColor { get; init; }
 
+    /// <summary>
+    /// 获取或设置不透明度，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required double Opacity { get; init; }
 
+    /// <summary>
+    /// 获取或设置FlipX，用于表示坐标、尺寸或向量分量，参与变换和导出计算。
+    /// </summary>
     public required bool FlipX { get; init; }
 
+    /// <summary>
+    /// 获取或设置FlipY，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required bool FlipY { get; init; }
 
+    /// <summary>
+    /// 获取或设置资源Info，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// </summary>
     public string? ResourceInfo { get; init; }
 }
 
 internal sealed class SceneRenderBuildCache
 {
+    /// <summary>
+    /// 初始化场景RenderBuildCache 实例，并保存调用方提供的核心数据。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
     public SceneRenderBuildCache(SbSceneFile scene)
     {
         Scene = scene;
@@ -79,20 +134,44 @@ internal sealed class SceneRenderBuildCache
         Warnings = warnings;
     }
 
+    /// <summary>
+    /// 获取场景，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// </summary>
     public SbSceneFile Scene { get; }
 
+    /// <summary>
+    /// 获取节点集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyList<NodeInfo> Nodes { get; }
 
+    /// <summary>
+    /// 获取父级By节点，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyDictionary<int, int> ParentByNode { get; }
 
+    /// <summary>
+    /// 获取父级Indexes，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyList<int> ParentIndexes { get; }
 
+    /// <summary>
+    /// 获取图像Cast节点Indexes，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlySet<int> ImageCastNodeIndexes { get; }
 
+    /// <summary>
+    /// 获取图像Entries，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyList<ImageRenderEntry> ImageEntries { get; }
 
+    /// <summary>
+    /// 获取节点MarkerEntries，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyList<NodeMarkerRenderEntry> NodeMarkerEntries { get; }
 
+    /// <summary>
+    /// 获取非致命警告列表，用于把非致命问题返回给调用方，便于诊断解析、渲染或导出过程。
+    /// </summary>
     public IReadOnlyList<string> Warnings { get; }
 
     private static IReadOnlyList<int> BuildParentIndexes(
@@ -203,71 +282,159 @@ internal sealed class SceneRenderBuildCache
 
 internal sealed class ImageRenderEntry
 {
+    /// <summary>
+    /// 获取或设置图像Cast，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required SbSceneImageCast ImageCast { get; init; }
 
+    /// <summary>
+    /// 获取或设置节点，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required NodeInfo Node { get; init; }
 
+    /// <summary>
+    /// 获取或设置节点名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string NodeName { get; init; }
 
+    /// <summary>
+    /// 获取或设置Group，用于标识分类、组件、属性或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Group { get; init; }
 
+    /// <summary>
+    /// 获取或设置Local矩形，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public required Rect LocalRect { get; init; }
 
+    /// <summary>
+    /// 获取或设置Placeholder颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required Color PlaceholderColor { get; init; }
 
+    /// <summary>
+    /// 获取或设置FlipX，用于表示坐标、尺寸或向量分量，参与变换和导出计算。
+    /// </summary>
     public required bool FlipX { get; init; }
 
+    /// <summary>
+    /// 获取或设置FlipY，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required bool FlipY { get; init; }
 }
 
 internal sealed class NodeMarkerRenderEntry
 {
+    /// <summary>
+    /// 获取或设置节点，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required NodeInfo Node { get; init; }
 
+    /// <summary>
+    /// 获取或设置节点名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string NodeName { get; init; }
 
+    /// <summary>
+    /// 获取或设置Group，用于标识分类、组件、属性或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Group { get; init; }
 
+    /// <summary>
+    /// 获取或设置Local矩形，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public required Rect LocalRect { get; init; }
 
+    /// <summary>
+    /// 获取或设置Placeholder颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required Color PlaceholderColor { get; init; }
 }
 
 internal sealed class NodeRow
 {
+    /// <summary>
+    /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required int Index { get; init; }
 
+    /// <summary>
+    /// 获取或设置名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Name { get; init; }
 
+    /// <summary>
+    /// 获取或设置Group，用于标识分类、组件、属性或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Group { get; init; }
 
+    /// <summary>
+    /// 获取或设置Flags，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+    /// </summary>
     public required string Flags { get; init; }
 
+    /// <summary>
+    /// 获取或设置Display，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required string Display { get; init; }
 
+    /// <summary>
+    /// 获取或设置图像，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required string Image { get; init; }
 
+    /// <summary>
+    /// 获取或设置变换，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required string Transform { get; init; }
 }
 
 internal sealed class NodeTreeItem
 {
+    /// <summary>
+    /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required int Index { get; init; }
 
+    /// <summary>
+    /// 获取或设置名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Name { get; init; }
 
+    /// <summary>
+    /// 获取或设置Group，用于标识分类、组件、属性或序列化字段身份，帮助处理流程选择正确分支。
+    /// </summary>
     public required string Group { get; init; }
 
+    /// <summary>
+    /// 获取或设置Flags，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+    /// </summary>
     public required string Flags { get; init; }
 
+    /// <summary>
+    /// 获取或设置Display，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required string Display { get; init; }
 
+    /// <summary>
+    /// 获取或设置图像，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required string Image { get; init; }
 
+    /// <summary>
+    /// 获取或设置变换，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public required string Transform { get; init; }
 
+    /// <summary>
+    /// 获取或设置子块集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required List<NodeTreeItem> Children { get; init; }
 
+    /// <summary>
+    /// 枚举节点自身及其所有子孙节点，用于树形显示和可见性操作。
+    /// </summary>
+    /// <returns>按深度优先顺序返回当前节点以及所有子孙节点。</returns>
     public IEnumerable<NodeTreeItem> EnumerateSelfAndDescendants()
     {
         yield return this;
@@ -293,12 +460,27 @@ internal sealed class SvoRenderResources
         Warnings = warnings;
     }
 
+    /// <summary>
+    /// 获取路径，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// </summary>
     public string Path { get; }
 
+    /// <summary>
+    /// 获取Atlas图像集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public IReadOnlyDictionary<int, RgbaImage> AtlasImages { get; }
 
+    /// <summary>
+    /// 获取非致命警告列表，用于把非致命问题返回给调用方，便于诊断解析、渲染或导出过程。
+    /// </summary>
     public IReadOnlyList<string> Warnings { get; }
 
+    /// <summary>
+    /// 加载持久化设置或资源；读取失败时由调用方使用默认状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>加载后的设置或资源对象。</returns>
     public static SvoRenderResources Load(SbSceneFile scene, string svoPath)
     {
         var warnings = new List<string>();
@@ -336,6 +518,13 @@ internal sealed class SvoRenderResources
         return new SvoRenderResources(svoPath, atlasImages, warnings);
     }
 
+    /// <summary>
+    /// 根据 image cast 的默认 crop 引用解析可显示的位图。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="imageCast">参与本次处理的图像或输入对象。</param>
+    /// <param name="resourceInfo">参与本次处理的资源Info。</param>
+    /// <returns>解析并着色后的 WPF 位图；资源缺失时返回 null。</returns>
     public BitmapSource? ResolveBitmap(
         SbSceneFile scene,
         SbSceneImageCast imageCast,
@@ -352,6 +541,18 @@ internal sealed class SvoRenderResources
             out resourceInfo);
     }
 
+    /// <summary>
+    /// 按动画状态、颜色状态和翻转标志解析 image cast 位图。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="imageCast">参与本次处理的图像或输入对象。</param>
+    /// <param name="primaryReferenceIndex">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="nodeState">参与本次处理的一组结构化条目。</param>
+    /// <param name="colorState">参与颜色、透明度或混合计算的通道值。</param>
+    /// <param name="flipX">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="flipY">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="resourceInfo">参与本次处理的资源Info。</param>
+    /// <returns>解析并着色后的 WPF 位图；资源缺失时返回 null。</returns>
     public BitmapSource? ResolveBitmap(
         SbSceneFile scene,
         SbSceneImageCast imageCast,
@@ -559,6 +760,15 @@ internal sealed class SvoRenderResources
         bool FlipX,
         bool FlipY)
     {
+        /// <summary>
+        /// 创建Create，封装调用方后续复用的配置或数据结构。
+        /// </summary>
+        /// <param name="cropKey">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="nodeState">参与本次处理的一组结构化条目。</param>
+        /// <param name="colorState">参与颜色、透明度或混合计算的通道值。</param>
+        /// <param name="flipX">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="flipY">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>用于缓存已着色位图的稳定键。</returns>
         public static LitBitmapCacheKey Create(
             (int AtlasIndex, int CropIndex) cropKey,
             SbSceneNodeAnimationState nodeState,
@@ -590,11 +800,25 @@ internal sealed class SvoRenderResources
 
 internal static class SceneRenderBuilder
 {
+    /// <summary>
+    /// 根据场景、资源和渲染选项构建 Viewer 可绘制的场景描述。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="resources">参与本次处理的资源集合。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含绘制项、内容边界和警告的 Viewer 渲染场景。</returns>
     public static RenderScene Build(SbSceneFile scene, SvoRenderResources? resources, RenderSceneOptions options)
     {
         return Build(new SceneRenderBuildCache(scene), resources, options);
     }
 
+    /// <summary>
+    /// 使用已缓存的场景分析结果构建 Viewer 可绘制的场景描述。
+    /// </summary>
+    /// <param name="cache">预先构建的节点、资源索引和诊断缓存。</param>
+    /// <param name="resources">参与本次处理的资源集合。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含绘制项、内容边界和警告的 Viewer 渲染场景。</returns>
     public static RenderScene Build(SceneRenderBuildCache cache, SvoRenderResources? resources, RenderSceneOptions options)
     {
         var scene = cache.Scene;
@@ -721,6 +945,11 @@ internal static class SceneRenderBuilder
         };
     }
 
+    /// <summary>
+    /// 构建节点Rows，为渲染、导出或诊断流程准备中间状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <returns>用于列表展示的节点行集合。</returns>
     public static IReadOnlyList<NodeRow> BuildNodeRows(SbSceneFile scene)
     {
         var imageCastCounts = scene.Surfboard.Resources.ImageCasts
@@ -744,6 +973,13 @@ internal static class SceneRenderBuilder
         }).ToArray();
     }
 
+    /// <summary>
+    /// 构建节点Tree，为渲染、导出或诊断流程准备中间状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="hiddenNodeIndexes">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="shownNodeIndexes">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <returns>用于树形控件展示和显隐操作的节点树。</returns>
     public static IReadOnlyList<NodeTreeItem> BuildNodeTree(
         SbSceneFile scene,
         IReadOnlySet<int> hiddenNodeIndexes,

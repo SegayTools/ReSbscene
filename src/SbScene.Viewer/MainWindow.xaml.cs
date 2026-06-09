@@ -14,6 +14,9 @@ using SbScene.Core.Unity;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Viewer 主窗口，协调文件加载、资源状态、渲染视图和用户操作。
+/// </summary>
 public partial class MainWindow : Window
 {
     private const double PlaybackFramesPerSecond = 60.0;
@@ -68,6 +71,9 @@ public partial class MainWindow : Window
 
     private bool _isLooping;
 
+    /// <summary>
+    /// 初始化MainWindow 实例，并保存调用方提供的核心数据。
+    /// </summary>
     public MainWindow()
     {
         InitializeComponent();
@@ -346,11 +352,18 @@ public partial class MainWindow : Window
         private readonly Action _dispose;
         private bool _disposed;
 
+        /// <summary>
+        /// 初始化BusyScope 实例，并保存调用方提供的核心数据。
+        /// </summary>
+        /// <param name="dispose">离开繁忙状态时要执行的恢复动作。</param>
         public BusyScope(Action dispose)
         {
             _dispose = dispose;
         }
 
+        /// <summary>
+        /// 释放 Viewer 窗口持有的计时器和其他托管资源。
+        /// </summary>
         public void Dispose()
         {
             if (_disposed)

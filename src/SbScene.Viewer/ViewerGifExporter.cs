@@ -7,6 +7,14 @@ namespace SbScene.Viewer;
 
 internal static class ViewerGifExporter
 {
+    /// <summary>
+    /// 导出导出清单，将 sbscene 语义模型转换为目标格式的结构化输出。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="settings">参与本次处理的导出设置。</param>
+    /// <param name="animations">参与本次处理的一组结构化条目。</param>
+    /// <returns>包含导出清单、诊断信息和失败状态的导出结果。</returns>
     public static ViewerGifExportResult Export(
         SbSceneFile scene,
         string svoPath,

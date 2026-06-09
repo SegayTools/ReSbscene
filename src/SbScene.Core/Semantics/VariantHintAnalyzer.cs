@@ -4,6 +4,12 @@ namespace SbScene.Core.Semantics;
 
 internal static partial class VariantHintAnalyzer
 {
+    /// <summary>
+    /// 根据节点分组、动画名称和轨道信息推断可导出的变体提示。
+    /// </summary>
+    /// <param name="nodes">场景节点集合，用于推断服装、附件等节点变体。</param>
+    /// <param name="animations">动画集合，用于推断可绑定的动作和轨道变体。</param>
+    /// <returns>去重并按置信度排序后的变体提示列表。</returns>
     public static IReadOnlyList<VariantHint> Build(IReadOnlyList<NodeInfo> nodes, IReadOnlyList<AnimationInfo> animations)
     {
         var hints = new List<VariantHint>();

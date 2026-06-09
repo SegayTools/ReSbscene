@@ -14,6 +14,9 @@ using SbScene.Core.Unity;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Viewer 主窗口的动画控制部分，负责槽位选择、播放状态和动画帧更新。
+/// </summary>
 public partial class MainWindow : Window
 {
     private void AnimationComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -597,10 +600,19 @@ public partial class MainWindow : Window
 
     private sealed class AnimationPlaybackSlot
     {
+        /// <summary>
+        /// 获取或设置IsLocked，用于控制对应功能开关，调用方可据此改变解析、渲染或导出策略。
+        /// </summary>
         public bool IsLocked { get; set; }
 
+        /// <summary>
+        /// 获取或设置帧，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
+        /// </summary>
         public double Frame { get; set; }
 
+        /// <summary>
+        /// 获取或设置IsLooping，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
+        /// </summary>
         public bool IsLooping { get; set; }
     }
 }

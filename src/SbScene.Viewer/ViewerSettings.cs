@@ -12,58 +12,140 @@ internal sealed class ViewerSettings
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara配置Template路径，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public string? LastUnityNavicharaProfileTemplatePath { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara配置路径，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public string? LastUnityNavicharaProfilePath { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara输出目录，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public string? LastUnityNavicharaOutputDirectory { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara角色信息标识，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public int LastUnityNavicharaCharacterId { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara是否提取精灵集合，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaExtractSprites { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara是否写出校验信息输出帧序列，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaWriteValidationFrames { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara严格校验开关，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaStrict { get; set; }
 
+    /// <summary>
+    /// 表示上次使用的Unity NaviChara自动居中，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaAutoCenter { get; set; } = true;
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara烘焙采样后的曲线集合，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaBakeSampledCurves { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的Unity NaviChara是否允许Placeholder动画剪辑集合，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastUnityNavicharaAllowPlaceholderClips { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF 导出清单路径，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public string? LastGifExportPath { get; set; }
 
+    /// <summary>
+    /// 表示上次使用的GIF 输出帧率，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public int LastGifFps { get; set; } = 30;
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF是否使用帧范围，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifUseFrameRange { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF起始帧，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public double LastGifStartFrame { get; set; }
 
+    /// <summary>
+    /// 表示上次使用的GIF结束帧，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public double LastGifEndFrame { get; set; } = 60;
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF压缩输出帧序列，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifCompressFrames { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF是否使用目标宽度，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifUseTargetWidth { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF目标宽度，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public int LastGifTargetWidth { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF是否使用目标高度，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifUseTargetHeight { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF目标高度，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public int LastGifTargetHeight { get; set; }
 
+    /// <summary>
+    /// 表示上次使用的GIF透明边距，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public int LastGifPadding { get; set; } = 80;
 
+    /// <summary>
+    /// 表示上次使用的GIF 输出缩放比例，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public double LastGifScale { get; set; } = 1.0;
 
+    /// <summary>
+    /// 获取或设置上次使用的GIFHigh质量，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifHighQuality { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF是否显示Hidden，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifShowHidden { get; set; }
 
+    /// <summary>
+    /// 获取或设置上次使用的GIF角色信息Defaults，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public bool LastGifCharacterDefaults { get; set; }
 
+    /// <summary>
+    /// 表示上次使用的GIF消隐背景颜色，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
+    /// </summary>
     public string LastGifMatteColor { get; set; } = "#FFFFFF";
 
+    /// <summary>
+    /// 加载持久化设置或资源；读取失败时由调用方使用默认状态。
+    /// </summary>
+    /// <returns>加载后的设置或资源对象。</returns>
     public static ViewerSettings Load()
     {
         try
@@ -156,6 +238,9 @@ internal sealed class ViewerSettings
         return string.IsNullOrWhiteSpace(path) ? null : path;
     }
 
+    /// <summary>
+    /// 保存持久化设置或处理结果；失败时不阻断主流程。
+    /// </summary>
     public void Save()
     {
         try

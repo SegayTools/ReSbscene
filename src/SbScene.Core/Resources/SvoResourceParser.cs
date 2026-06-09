@@ -4,6 +4,15 @@ using SbScene.Core.Images;
 
 namespace SbScene.Core.Resources;
 
+/// <summary>
+/// 提供SVO资源解析器，负责把原始文件或字节流转换为强类型模型。
+/// </summary>
+/// <example>
+/// <code>
+/// var textures = SvoResourceParser.ParseFile("resource.svo");
+/// Console.WriteLine(textures.Count);
+/// </code>
+/// </example>
 public static class SvoResourceParser
 {
     private const int AvtsHeaderSize = 0x80;
@@ -11,30 +20,63 @@ public static class SvoResourceParser
     private const int AvtsDirectoryEntrySize = 0x400;
     private const int AvtsDirectoryEntryKnownSize = 0x210;
 
+    /// <summary>
+    /// 从 SVO 文件路径读取并解析 AVTS 头部信息。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SvoHeaderInfo ParseHeaderFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return ParseHeader(File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// 解析文件，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
+    /// <example>
+    /// <code>
+    /// foreach (var texture in SvoResourceParser.ParseFile("resource.svo"))
+    /// {
+    ///     Console.WriteLine($"{texture.FileName}: {texture.Width}x{texture.Height}");
+    /// }
+    /// </code>
+    /// </example>
     public static IReadOnlyList<SvoTextureResource> ParseFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return Parse(File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// 解析目录文件，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SvoDirectoryEntry> ParseDirectoryFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return ParseDirectory(File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// 从 SVO 文件路径读取并解析 YABX 元数据。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SvoMetadataInfo? ParseMetadataFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return ParseMetadata(File.ReadAllBytes(path));
     }
 
+    /// <summary>
+    /// 从 SVO 原始字节解析 AVTS 头部、目录规模和未知字段统计。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SvoHeaderInfo ParseHeader(byte[] data)
     {
         ValidateAvts(data);
@@ -67,6 +109,11 @@ public static class SvoResourceParser
         };
     }
 
+    /// <summary>
+    /// 从 SVO 原始字节解析可解码的 DDS 纹理资源列表。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SvoTextureResource> Parse(byte[] data)
     {
         ValidateAvts(data);
@@ -80,6 +127,11 @@ public static class SvoResourceParser
         return ParseDdsMagicFallback(data);
     }
 
+    /// <summary>
+    /// 解析目录，把输入文件或字节流转换为强类型模型。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static IReadOnlyList<SvoDirectoryEntry> ParseDirectory(byte[] data)
     {
         ValidateAvts(data);
@@ -139,6 +191,11 @@ public static class SvoResourceParser
         return entries;
     }
 
+    /// <summary>
+    /// 从 SVO 原始字节解析 YABX 元数据结构；缺失时返回 null。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解析得到的强类型模型。</returns>
     public static SvoMetadataInfo? ParseMetadata(byte[] data)
     {
         var directory = ParseDirectory(data);

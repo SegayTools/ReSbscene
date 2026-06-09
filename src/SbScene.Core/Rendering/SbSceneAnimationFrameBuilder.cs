@@ -4,66 +4,152 @@ using System.Runtime.CompilerServices;
 
 namespace SbScene.Core.Rendering;
 
+/// <summary>
+/// 表示某一帧的完整动画状态，包含节点状态和 image cast 状态。
+/// </summary>
 public sealed class SbSceneAnimationFrameState
 {
+    /// <summary>
+    /// 获取或设置节点集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required IReadOnlyList<SbSceneNodeAnimationState> Nodes { get; init; }
 
+    /// <summary>
+    /// 获取或设置图像Casts，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public required IReadOnlyList<SbSceneImageCastAnimationState> ImageCasts { get; init; }
 }
 
+/// <summary>
+/// 表示单个节点在某一帧上的变换、显示和颜色状态。
+/// </summary>
 public sealed class SbSceneNodeAnimationState
 {
+    /// <summary>
+    /// 获取或设置平移X，用于表示坐标、尺寸或向量分量，参与变换和导出计算。
+    /// </summary>
     public double TranslationX { get; set; }
 
+    /// <summary>
+    /// 获取或设置平移Y，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public double TranslationY { get; set; }
 
+    /// <summary>
+    /// 获取或设置旋转Degrees，用于保存一组结构化条目，供调用方遍历、序列化或继续处理。
+    /// </summary>
     public double RotationDegrees { get; set; }
 
+    /// <summary>
+    /// 获取或设置输出缩放比例X，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double ScaleX { get; set; }
 
+    /// <summary>
+    /// 获取或设置输出缩放比例Y，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double ScaleY { get; set; }
 
+    /// <summary>
+    /// 获取或设置Display，用于描述位置、旋转、缩放或矩阵状态，参与渲染坐标和导出坐标计算。
+    /// </summary>
     public bool Display { get; set; }
 
+    /// <summary>
+    /// 获取或设置材质红色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte MaterialR { get; set; }
 
+    /// <summary>
+    /// 获取或设置材质绿色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte MaterialG { get; set; }
 
+    /// <summary>
+    /// 获取或设置材质蓝色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte MaterialB { get; set; }
 
+    /// <summary>
+    /// 获取或设置材质Alpha 透明度通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte MaterialA { get; set; }
 
+    /// <summary>
+    /// 获取或设置照明红色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte IlluminationR { get; set; }
 
+    /// <summary>
+    /// 获取或设置照明绿色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte IlluminationG { get; set; }
 
+    /// <summary>
+    /// 获取或设置照明蓝色通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte IlluminationB { get; set; }
 
+    /// <summary>
+    /// 获取或设置照明Alpha 透明度通道值，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public byte IlluminationA { get; set; }
 
+    /// <summary>
+    /// 获取或设置Vertex颜色集合，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public required IReadOnlyList<RgbaColor> VertexColors { get; set; }
 
+    /// <summary>
+    /// 表示材质颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public RgbaColor MaterialColor => new(MaterialR, MaterialG, MaterialB, MaterialA);
 
+    /// <summary>
+    /// 表示照明颜色，用于参与颜色、透明度、照明或混合计算。
+    /// </summary>
     public RgbaColor IlluminationColor => new(IlluminationR, IlluminationG, IlluminationB, IlluminationA);
 }
 
+/// <summary>
+/// 表示 image cast 在某一帧上的尺寸、引用和翻转状态。
+/// </summary>
 public sealed class SbSceneImageCastAnimationState
 {
+    /// <summary>
+    /// 获取或设置宽度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double Width { get; set; }
 
+    /// <summary>
+    /// 获取或设置高度，用于确定渲染区域、裁剪范围、采样质量或输出尺寸。
+    /// </summary>
     public double Height { get; set; }
 
+    /// <summary>
+    /// 获取或设置Primary引用索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public int PrimaryReferenceIndex { get; set; }
 
+    /// <summary>
+    /// 获取或设置Secondary引用索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+    /// </summary>
     public int SecondaryReferenceIndex { get; set; }
 }
 
+/// <summary>
+/// 提供sbscene 场景动画帧构建器，负责构建渲染、导出或诊断流程需要的中间状态。
+/// </summary>
 public static class SbSceneAnimationFrameBuilder
 {
     private const double Epsilon = 0.000001;
     private static readonly ConditionalWeakTable<SbSceneFile, AnimationFrameCache> Caches = new();
 
+    /// <summary>
+    /// 构建场景的初始动画帧状态，用于渲染未套用动画时的节点和图像状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <returns>包含节点和 image cast 动画值的帧状态。</returns>
     public static SbSceneAnimationFrameState BuildInitial(SbSceneFile scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -71,6 +157,13 @@ public static class SbSceneAnimationFrameBuilder
         return GetCache(scene).BuildInitial();
     }
 
+    /// <summary>
+    /// 根据动画选择集合构建指定帧的场景动画状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="selections">参与本次处理的一组结构化条目。</param>
+    /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
+    /// <returns>包含已应用选择集合的节点和 image cast 动画值的帧状态。</returns>
     public static SbSceneAnimationFrameState Build(
         SbSceneFile scene,
         IReadOnlyList<SbSceneAnimationSelection> selections,
@@ -84,6 +177,14 @@ public static class SbSceneAnimationFrameBuilder
         return state;
     }
 
+    /// <summary>
+    /// 根据单个动画和帧号构建场景动画状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="animation">参与本次处理的动画。</param>
+    /// <param name="frame">要采样或渲染的动画帧位置。</param>
+    /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
+    /// <returns>包含该动画在指定帧上采样结果的帧状态。</returns>
     public static SbSceneAnimationFrameState Build(
         SbSceneFile scene,
         AnimationInfo? animation,
@@ -101,6 +202,13 @@ public static class SbSceneAnimationFrameBuilder
         return state;
     }
 
+    /// <summary>
+    /// 应用动画集合，将动画、变换或修补规则写入目标状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="state">要写入动画结果的可变帧状态。</param>
+    /// <param name="selections">参与本次处理的一组结构化条目。</param>
+    /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
     public static void ApplyAnimations(
         SbSceneFile scene,
         SbSceneAnimationFrameState state,
@@ -134,6 +242,15 @@ public static class SbSceneAnimationFrameBuilder
         }
     }
 
+    /// <summary>
+    /// 尝试Resolve动画Selection，并通过返回值或输出参数报告是否成功。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="selection">要解析的动画槽位或名称选择。</param>
+    /// <param name="slotIndex">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="animation">参与本次处理的动画。</param>
+    /// <param name="warning">接收诊断日志或非致命警告的回调。</param>
+    /// <returns>如果条件成立则为 true；否则为 false。</returns>
     public static bool TryResolveAnimationSelection(
         SbSceneFile scene,
         SbSceneAnimationSelection selection,
@@ -183,6 +300,14 @@ public static class SbSceneAnimationFrameBuilder
         return animation.Index;
     }
 
+    /// <summary>
+    /// 应用动画，将动画、变换或修补规则写入目标状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="state">要写入单个动画采样结果的可变帧状态。</param>
+    /// <param name="animation">参与本次处理的动画。</param>
+    /// <param name="frame">要采样或渲染的动画帧位置。</param>
+    /// <param name="addWarning">接收诊断日志或非致命警告的回调。</param>
     public static void ApplyAnimation(
         SbSceneFile scene,
         SbSceneAnimationFrameState state,
@@ -472,6 +597,10 @@ public static class SbSceneAnimationFrameBuilder
         private readonly IReadOnlyList<SbSceneNodeAnimationState> _initialNodes;
         private readonly IReadOnlyList<SbSceneImageCastAnimationState> _initialImageCasts;
 
+        /// <summary>
+        /// 初始化动画帧Cache 实例，并保存调用方提供的核心数据。
+        /// </summary>
+        /// <param name="scene">已解析的 sbscene 场景模型。</param>
         public AnimationFrameCache(SbSceneFile scene)
         {
             AnimationsByName = scene.Surfboard.Animations
@@ -489,12 +618,25 @@ public static class SbSceneAnimationFrameBuilder
             _initialImageCasts = BuildInitialImageStates(scene.Surfboard.Resources.ImageCasts);
         }
 
+        /// <summary>
+        /// 获取动画集合By名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+        /// </summary>
         public IReadOnlyDictionary<string, AnimationInfo> AnimationsByName { get; }
 
+        /// <summary>
+        /// 获取图像CastsBy节点，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
+        /// </summary>
         public IReadOnlyDictionary<int, SbSceneImageCast[]> ImageCastsByNode { get; }
 
+        /// <summary>
+        /// 获取节点索引By名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
+        /// </summary>
         public IReadOnlyDictionary<string, int> NodeIndexByName { get; }
 
+        /// <summary>
+        /// 克隆缓存中的初始节点和 image cast 状态，供单次采样独立修改。
+        /// </summary>
+        /// <returns>可安全修改的初始动画帧状态副本。</returns>
         public SbSceneAnimationFrameState BuildInitial()
         {
             return new SbSceneAnimationFrameState

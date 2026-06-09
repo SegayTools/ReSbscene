@@ -2,8 +2,17 @@ using System.Globalization;
 
 namespace SbScene.Core.Rendering;
 
+/// <summary>
+/// 提供sbscene 场景动画Selection解析器，负责把原始文件或字节流转换为强类型模型。
+/// </summary>
 public static class SbSceneAnimationSelectionParser
 {
+    /// <summary>
+    /// 尝试Parse，并通过返回值或输出参数报告是否成功。
+    /// </summary>
+    /// <param name="text">命令行传入的动画选择文本。</param>
+    /// <param name="selection">解析得到的动画选择；解析失败时为默认值。</param>
+    /// <returns>如果文本能解析为动画选择则为 true；否则为 false。</returns>
     public static bool TryParse(string text, out SbSceneAnimationSelection selection)
     {
         selection = new SbSceneAnimationSelection(string.Empty, 0);

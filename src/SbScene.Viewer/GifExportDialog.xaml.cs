@@ -7,6 +7,9 @@ using SbScene.Core.Rendering;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 GIF 导出设置对话框，负责收集帧率、范围、尺寸和背景色等导出选项。
+/// </summary>
 public partial class GifExportDialog : Window
 {
     internal GifExportDialog(ViewerSettings settings, string? scenePath)
@@ -36,6 +39,9 @@ public partial class GifExportDialog : Window
         UpdateTargetSizeState();
     }
 
+    /// <summary>
+    /// 获取或设置结果，用于返回导出或处理产物及其统计、校验和诊断信息。
+    /// </summary>
     public GifExportDialogResult? Result { get; private set; }
 
     private static string? BuildDefaultOutputPath(string? scenePath)
@@ -330,6 +336,29 @@ public partial class GifExportDialog : Window
     }
 }
 
+/// <summary>
+/// 表示GIF 导出清单Dialog结果，封装处理产物、统计信息和诊断状态。
+/// </summary>
+/// <param name="OutputPath">要读取、写入或记录的文件或目录路径。</param>
+/// <param name="Fps">参与本次处理的输出帧率。</param>
+/// <param name="UseFrameRange">要采样或渲染的动画帧位置。</param>
+/// <param name="StartFrame">要采样或渲染的动画帧位置。</param>
+/// <param name="EndFrame">要采样或渲染的动画帧位置。</param>
+/// <param name="FrameRange">要采样或渲染的动画帧位置。</param>
+/// <param name="CompressFrames">要采样或渲染的动画帧位置。</param>
+/// <param name="UseTargetWidth">目标宽度或参与尺寸计算的宽度。</param>
+/// <param name="TargetWidthValue">目标宽度或参与尺寸计算的宽度。</param>
+/// <param name="TargetWidth">目标宽度或参与尺寸计算的宽度。</param>
+/// <param name="UseTargetHeight">目标高度或参与尺寸计算的高度。</param>
+/// <param name="TargetHeightValue">目标高度或参与尺寸计算的高度。</param>
+/// <param name="TargetHeight">目标高度或参与尺寸计算的高度。</param>
+/// <param name="Padding">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="Scale">参与本次处理的输出缩放比例。</param>
+/// <param name="HighQuality">参与几何边界、坐标或变换计算的位置值。</param>
+/// <param name="ShowHidden">用于关联节点、资源或导出条目的索引或标识。</param>
+/// <param name="CharacterDefaults">参与本次处理的角色信息Defaults。</param>
+/// <param name="MatteColor">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="MatteColorText">参与几何边界、坐标或变换计算的位置值。</param>
 public sealed record GifExportDialogResult(
     string OutputPath,
     int Fps,

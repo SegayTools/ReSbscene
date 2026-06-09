@@ -6,6 +6,9 @@ using Microsoft.Win32;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Unity NaviChara 导出设置对话框，负责收集配置文件、输出目录和导出开关。
+/// </summary>
 public partial class UnityNavicharaExportDialog : Window
 {
     internal UnityNavicharaExportDialog(ViewerSettings settings, string? scenePath)
@@ -22,6 +25,9 @@ public partial class UnityNavicharaExportDialog : Window
         AllowPlaceholderClipsCheckBox.IsChecked = settings.LastUnityNavicharaAllowPlaceholderClips;
     }
 
+    /// <summary>
+    /// 获取或设置结果，用于返回导出或处理产物及其统计、校验和诊断信息。
+    /// </summary>
     public UnityNavicharaExportDialogResult? Result { get; private set; }
 
     private static string? BuildDefaultOutputDirectory(string? scenePath)
@@ -164,6 +170,18 @@ public partial class UnityNavicharaExportDialog : Window
     }
 }
 
+/// <summary>
+/// 表示Unity NaviChara 导出清单Dialog结果，封装处理产物、统计信息和诊断状态。
+/// </summary>
+/// <param name="ProfilePath">要读取、写入或记录的文件或目录路径。</param>
+/// <param name="OutputDirectory">要读取、写入或记录的文件或目录路径。</param>
+/// <param name="CharacterId">用于关联节点、资源或导出条目的索引或标识。</param>
+/// <param name="ExtractSprites">参与几何边界、坐标或变换计算的位置值。</param>
+/// <param name="WriteValidationFrames">要采样或渲染的动画帧位置。</param>
+/// <param name="Strict">参与本次处理的严格校验开关。</param>
+/// <param name="AutoCenter">参与颜色、透明度或混合计算的通道值。</param>
+/// <param name="BakeSampledCurves">参与本次处理的采样曲线烘焙开关。</param>
+/// <param name="AllowPlaceholderClips">参与本次处理的一组结构化条目。</param>
 public sealed record UnityNavicharaExportDialogResult(
     string ProfilePath,
     string OutputDirectory,

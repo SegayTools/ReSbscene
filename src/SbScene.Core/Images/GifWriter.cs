@@ -4,6 +4,9 @@ using SbScene.Core.Rendering;
 
 namespace SbScene.Core.Images;
 
+/// <summary>
+/// 提供GIF写出器，负责把内存数据编码并写入目标文件。
+/// </summary>
 public static class GifWriter
 {
     private const int GlobalColorCount = 256;
@@ -11,6 +14,15 @@ public static class GifWriter
     private const int QuantizedChannelCount = 1 << QuantizedChannelBits;
     private const int QuantizedColorCount = QuantizedChannelCount * QuantizedChannelCount * QuantizedChannelCount;
 
+    /// <summary>
+    /// 将 RGBA 帧序列编码为 GIF 文件，并按指定背景色处理透明像素。
+    /// </summary>
+    /// <param name="path">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="frames">要采样或渲染的动画帧位置。</param>
+    /// <param name="delayCentiseconds">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="matteColor">参与颜色、透明度或混合计算的通道值。</param>
+    /// <param name="loopCount">参与本次处理的循环数量。</param>
+    /// <param name="compressFrames">要采样或渲染的动画帧位置。</param>
     public static void Write(
         string path,
         IReadOnlyList<RgbaImage> frames,
@@ -26,6 +38,15 @@ public static class GifWriter
         Write(stream, frames, delayCentiseconds, matteColor, loopCount, compressFrames);
     }
 
+    /// <summary>
+    /// 将 RGBA 帧序列编码为 GIF 数据流，供 CLI 和 Viewer 导出动画。
+    /// </summary>
+    /// <param name="stream">承载输入或输出字节的流。</param>
+    /// <param name="frames">要采样或渲染的动画帧位置。</param>
+    /// <param name="delayCentiseconds">参与几何边界、坐标或变换计算的位置值。</param>
+    /// <param name="matteColor">参与颜色、透明度或混合计算的通道值。</param>
+    /// <param name="loopCount">参与本次处理的循环数量。</param>
+    /// <param name="compressFrames">要采样或渲染的动画帧位置。</param>
     public static void Write(
         Stream stream,
         IReadOnlyList<RgbaImage> frames,
@@ -452,9 +473,21 @@ public static class GifWriter
 
     private struct HistogramEntry
     {
+        /// <summary>
+        /// 表示数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
+        /// </summary>
         public long Count;
+        /// <summary>
+        /// 表示累计值红色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public long SumR;
+        /// <summary>
+        /// 表示累计值绿色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public long SumG;
+        /// <summary>
+        /// 表示累计值蓝色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public long SumB;
     }
 
@@ -472,6 +505,12 @@ public static class GifWriter
 
     private readonly record struct GifRect(int Left, int Top, int Width, int Height)
     {
+        /// <summary>
+        /// 创建覆盖完整图像区域的矩形，用于 GIF 帧差分和写出。
+        /// </summary>
+        /// <param name="width">目标宽度或参与尺寸计算的宽度。</param>
+        /// <param name="height">目标高度或参与尺寸计算的高度。</param>
+        /// <returns>覆盖左上角到指定宽高的完整 GIF 帧矩形。</returns>
         public static GifRect Full(int width, int height)
         {
             return new GifRect(0, 0, width, height);
@@ -480,6 +519,10 @@ public static class GifWriter
 
     private sealed class ColorBucket
     {
+        /// <summary>
+        /// 初始化颜色桶，并计算调色板切分所需的通道范围和像素权重。
+        /// </summary>
+        /// <param name="colors">参与颜色、透明度或混合计算的通道值。</param>
         public ColorBucket(List<QuantizedColor> colors)
         {
             Colors = colors;
@@ -492,24 +535,57 @@ public static class GifWriter
             MaxB = colors.Max(static color => color.B);
         }
 
+        /// <summary>
+        /// 获取颜色集合，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public List<QuantizedColor> Colors { get; }
 
+        /// <summary>
+        /// 获取数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
+        /// </summary>
         public long Count { get; }
 
+        /// <summary>
+        /// 获取最小值红色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MinR { get; }
 
+        /// <summary>
+        /// 获取最大值红色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MaxR { get; }
 
+        /// <summary>
+        /// 获取最小值绿色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MinG { get; }
 
+        /// <summary>
+        /// 获取最大值绿色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MaxG { get; }
 
+        /// <summary>
+        /// 获取最小值蓝色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MinB { get; }
 
+        /// <summary>
+        /// 获取最大值蓝色通道值，用于参与颜色、透明度、照明或混合计算。
+        /// </summary>
         public int MaxB { get; }
 
+        /// <summary>
+        /// 获取颜色桶的最大通道跨度加权分数，用于选择下一次切分的桶。
+        /// </summary>
         public long RangeScore => Math.Max(MaxR - MinR, Math.Max(MaxG - MinG, MaxB - MinB)) * Count;
 
+        /// <summary>
+        /// 拆分颜色桶，用于调色板量化过程。
+        /// </summary>
+        /// <param name="Left">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="Right">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>按主变化通道拆出的左右两个颜色桶。</returns>
         public (ColorBucket Left, ColorBucket Right) Split()
         {
             var channel = SelectSplitChannel();
@@ -536,6 +612,13 @@ public static class GifWriter
             return (new ColorBucket(ordered.Take(splitIndex).ToList()), new ColorBucket(ordered.Skip(splitIndex).ToList()));
         }
 
+        /// <summary>
+        /// 计算颜色桶的平均 RGB 值，用于 GIF 调色板量化。
+        /// </summary>
+        /// <param name="R">参与颜色、透明度或混合计算的通道值。</param>
+        /// <param name="G">参与颜色、透明度或混合计算的通道值。</param>
+        /// <param name="B">参与颜色、透明度或混合计算的通道值。</param>
+        /// <returns>当前颜色桶按像素权重计算得到的平均 RGB 值。</returns>
         public (byte R, byte G, byte B) AverageColor()
         {
             var count = Math.Max(1, Count);
@@ -565,11 +648,20 @@ public static class GifWriter
         private int _bitBuffer;
         private int _bitCount;
 
+        /// <summary>
+        /// 初始化LzwBit写出器 实例，并保存调用方提供的核心数据。
+        /// </summary>
+        /// <param name="stream">承载输入或输出字节的流。</param>
         public LzwBitWriter(Stream stream)
         {
             _stream = stream;
         }
 
+        /// <summary>
+        /// 写入 GIF LZW 码流中的一个变长编码值。
+        /// </summary>
+        /// <param name="code">参与本次处理的代码。</param>
+        /// <param name="bitCount">写入该编码值时占用的有效位数。</param>
         public void Write(int code, int bitCount)
         {
             _bitBuffer |= code << _bitCount;
@@ -582,6 +674,9 @@ public static class GifWriter
             }
         }
 
+        /// <summary>
+        /// 刷新缓冲位流，确保 GIF LZW 编码数据完整写出。
+        /// </summary>
         public void Flush()
         {
             if (_bitCount > 0)

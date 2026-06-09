@@ -3,8 +3,16 @@ using System.Text;
 
 namespace SbScene.Core.Images;
 
+/// <summary>
+/// 提供DDS解码器，负责把压缩或封装后的图像数据解码为像素数据。
+/// </summary>
 public static class DdsDecoder
 {
+    /// <summary>
+    /// 解码Decode，将原始或压缩字节转换为可处理的像素数据。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>解码后的图像或像素数据。</returns>
     public static RgbaImage Decode(ReadOnlySpan<byte> data)
     {
         ValidateDdsHeader(data);
@@ -87,6 +95,11 @@ public static class DdsDecoder
         throw new InvalidDataException($"Unsupported DDS format '{format}'.");
     }
 
+    /// <summary>
+    /// 读取 DDS 头部中的格式标记，并返回用于诊断和错误消息的格式名称。
+    /// </summary>
+    /// <param name="data">待解析、解码或写出的原始字节数据。</param>
+    /// <returns>DDS 头部声明的像素格式名称；未知格式会返回可诊断的 FourCC 文本。</returns>
     public static string GetFormatName(ReadOnlySpan<byte> data)
     {
         ValidateDdsHeader(data);
@@ -153,6 +166,12 @@ public static class DdsDecoder
             : $"UnknownFourCC({Convert.ToHexString(data.Slice(84, 4))})";
     }
 
+    /// <summary>
+    /// 计算DXT1上边界Level大小，用于校验 DDS mip 顶层数据大小。
+    /// </summary>
+    /// <param name="width">目标宽度或参与尺寸计算的宽度。</param>
+    /// <param name="height">目标高度或参与尺寸计算的高度。</param>
+    /// <returns>DXT1 顶层 mip 数据需要占用的字节数。</returns>
     public static int GetDxt1TopLevelSize(int width, int height)
     {
         var blocksWide = (width + 3) / 4;
@@ -160,6 +179,12 @@ public static class DdsDecoder
         return blocksWide * blocksHigh * 8;
     }
 
+    /// <summary>
+    /// 计算DXT5上边界Level大小，用于校验 DDS mip 顶层数据大小。
+    /// </summary>
+    /// <param name="width">目标宽度或参与尺寸计算的宽度。</param>
+    /// <param name="height">目标高度或参与尺寸计算的高度。</param>
+    /// <returns>DXT5 顶层 mip 数据需要占用的字节数。</returns>
     public static int GetDxt5TopLevelSize(int width, int height)
     {
         var blocksWide = (width + 3) / 4;

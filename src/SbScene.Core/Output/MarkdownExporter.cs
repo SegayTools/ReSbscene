@@ -5,8 +5,16 @@ using SbScene.Core.Vtbf;
 
 namespace SbScene.Core.Output;
 
+/// <summary>
+/// 提供Markdown导出器，负责把 sbscene 数据转换为目标导出格式。
+/// </summary>
 public static class MarkdownExporter
 {
+    /// <summary>
+    /// 格式化Markdown，将模型转换为可展示、保存或比较的文本内容。
+    /// </summary>
+    /// <param name="file">要读取、写入或记录的文件或目录路径。</param>
+    /// <returns>格式化后的文本内容。</returns>
     public static string ToMarkdown(SbSceneFile file)
     {
         var builder = new StringBuilder();

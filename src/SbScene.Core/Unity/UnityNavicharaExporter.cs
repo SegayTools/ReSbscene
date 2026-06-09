@@ -7,11 +7,22 @@ using SbScene.Core.Semantics;
 
 namespace SbScene.Core.Unity;
 
+/// <summary>
+/// 提供Unity NaviChara 导出器，负责把 sbscene 数据转换为目标导出格式。
+/// </summary>
 public static class UnityNavicharaExporter
 {
     private const double Epsilon = 0.000001;
     private const string ExporterVersion = "SbScene.Core unity-navichara-export v1";
 
+    /// <summary>
+    /// 导出导出清单，将 sbscene 语义模型转换为目标格式的结构化输出。
+    /// </summary>
+    /// <param name="sbscenePath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="outputDirectory">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含导出清单、诊断信息和失败状态的导出结果。</returns>
     public static UnityNavicharaExportResult Export(
         string sbscenePath,
         string svoPath,
@@ -26,6 +37,15 @@ public static class UnityNavicharaExporter
         return Export(scene, sbscenePath, svoPath, outputDirectory, options);
     }
 
+    /// <summary>
+    /// 导出导出清单，将 sbscene 语义模型转换为目标格式的结构化输出。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <param name="sbscenePath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="svoPath">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="outputDirectory">要读取、写入或记录的文件或目录路径。</param>
+    /// <param name="options">控制本次处理行为的选项。</param>
+    /// <returns>包含导出清单、诊断信息和失败状态的导出结果。</returns>
     public static UnityNavicharaExportResult Export(
         SbSceneFile scene,
         string sbscenePath,
@@ -98,6 +118,11 @@ public static class UnityNavicharaExporter
         };
     }
 
+    /// <summary>
+    /// 构建配置Template，为渲染、导出或诊断流程准备中间状态。
+    /// </summary>
+    /// <param name="scene">已解析的 sbscene 场景模型。</param>
+    /// <returns>根据场景动画推断出的 NaviChara 配置模板。</returns>
     public static UnityNavicharaProfileTemplate BuildProfileTemplate(SbSceneFile scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -150,6 +175,11 @@ public static class UnityNavicharaExporter
         };
     }
 
+    /// <summary>
+    /// 格式化诊断信息列表Markdown，将模型转换为可展示、保存或比较的文本内容。
+    /// </summary>
+    /// <param name="diagnostics">参与本次处理的诊断信息列表。</param>
+    /// <returns>格式化后的文本内容。</returns>
     public static string FormatDiagnosticsMarkdown(IReadOnlyList<UnityNavicharaDiagnostic> diagnostics)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
@@ -1743,6 +1773,9 @@ public static class UnityNavicharaExporter
         IReadOnlyList<int>? ValidationFrames,
         List<UnityNavicharaSourceSlot> SourceSlots)
     {
+        /// <summary>
+        /// 获取或设置Placeholder，用于标记占位剪辑或占位资源，供导出校验和补全逻辑判断。
+        /// </summary>
         public bool Placeholder { get; set; }
     }
 
@@ -1770,6 +1803,12 @@ public static class UnityNavicharaExporter
             _valueOffset = valueOffset;
         }
 
+        /// <summary>
+        /// 创建Create，封装调用方后续复用的配置或数据结构。
+        /// </summary>
+        /// <param name="track">参与本次处理的轨道。</param>
+        /// <param name="settings">参与本次处理的导出设置。</param>
+        /// <returns>可继续累积颜色和显示状态变化的曲线构建器。</returns>
         public static TrackValueTransform Create(TrackInfo track, UnityNavicharaSettings settings)
         {
             return track.TrackType switch
@@ -1782,11 +1821,21 @@ public static class UnityNavicharaExporter
             };
         }
 
+        /// <summary>
+        /// 将一个曲线关键帧应用到构建器当前状态。
+        /// </summary>
+        /// <param name="value">参与本次处理的值。</param>
+        /// <returns>计算得到的数值。</returns>
         public double Apply(double value)
         {
             return value * _valueScale + _valueOffset;
         }
 
+        /// <summary>
+        /// 计算当前关键帧相对上一关键帧的状态差异。
+        /// </summary>
+        /// <param name="value">参与本次处理的值。</param>
+        /// <returns>计算得到的数值。</returns>
         public double ApplyDelta(double value)
         {
             return value * _valueScale;
@@ -1870,13 +1919,27 @@ public static class UnityNavicharaExporter
 
     private sealed class NodeSlotComparer : IEqualityComparer<(int NodeId, string Slot)>
     {
+        /// <summary>
+        /// 表示Instance，用于表达该模型在解析、渲染或导出流程中的具体业务含义。
+        /// </summary>
         public static NodeSlotComparer Instance { get; } = new();
 
+        /// <summary>
+        /// 比较两个轨道通道是否引用同一节点和轨道类型，用作字典键匹配。
+        /// </summary>
+        /// <param name="x">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <param name="y">参与几何边界、坐标或变换计算的位置值。</param>
+        /// <returns>如果条件成立则为 true；否则为 false。</returns>
         public bool Equals((int NodeId, string Slot) x, (int NodeId, string Slot) y)
         {
             return x.NodeId == y.NodeId && string.Equals(x.Slot, y.Slot, StringComparison.Ordinal);
         }
 
+        /// <summary>
+        /// 获取哈希代码，用于展示、比较、索引查找或后续计算。
+        /// </summary>
+        /// <param name="obj">要生成哈希码的节点轨道键。</param>
+        /// <returns>由节点 ID 和轨道槽位组合得到的哈希码。</returns>
         public int GetHashCode((int NodeId, string Slot) obj)
         {
             return HashCode.Combine(obj.NodeId, StringComparer.Ordinal.GetHashCode(obj.Slot));
@@ -1886,6 +1949,12 @@ public static class UnityNavicharaExporter
 
 internal static class UnityNavicharaCurveKeyExtensions
 {
+    /// <summary>
+    /// 返回带有指定帧号的动画选择，用于构造导出采样请求。
+    /// </summary>
+    /// <param name="key">要复制并替换帧号的曲线关键帧。</param>
+    /// <param name="frame">要采样或渲染的动画帧位置。</param>
+    /// <returns>保留原曲线值和切线信息、但帧号和时间已更新的关键帧。</returns>
     public static UnityNavicharaCurveKey WithFrame(this UnityNavicharaCurveKey key, int frame)
     {
         return new UnityNavicharaCurveKey

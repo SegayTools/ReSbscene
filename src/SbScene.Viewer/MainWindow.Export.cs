@@ -14,6 +14,9 @@ using SbScene.Core.Unity;
 
 namespace SbScene.Viewer;
 
+/// <summary>
+/// 表示 Viewer 主窗口的导出部分，负责 GIF 和 Unity NaviChara 导出流程。
+/// </summary>
 public partial class MainWindow : Window
 {
     private async void ExportGif_Click(object sender, RoutedEventArgs e)
