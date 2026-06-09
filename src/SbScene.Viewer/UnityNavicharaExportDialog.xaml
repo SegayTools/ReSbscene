@@ -1,0 +1,119 @@
+<Window x:Class="SbScene.Viewer.UnityNavicharaExportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Unity NaviChara 导出"
+        Height="470"
+        Width="620"
+        MinHeight="430"
+        MinWidth="560"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#F5F7FA">
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#1F2933" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="MinWidth" Value="84" />
+            <Setter Property="MinHeight" Value="30" />
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Margin" Value="0,0,18,8" />
+            <Setter Property="Foreground" Value="#1F2933" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="选择 profiletemplate JSON、输出目录和导出选项。"
+                   Foreground="#4D5968"
+                   TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="1" Margin="0,16,0,16">
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Profile JSON" VerticalAlignment="Center" />
+                <TextBox x:Name="ProfilePathTextBox" Grid.Column="1" />
+                <Button Grid.Column="3" Content="浏览..." Click="BrowseProfile_Click" />
+            </Grid>
+
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="8" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="输出目录" VerticalAlignment="Center" />
+                <TextBox x:Name="OutputDirectoryTextBox" Grid.Column="1" />
+                <Button Grid.Column="3" Content="浏览..." Click="BrowseOutputDirectory_Click" />
+            </Grid>
+
+            <Grid Margin="0,0,0,18">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="120" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="CharacterId" VerticalAlignment="Center" />
+                <TextBox x:Name="CharacterIdTextBox"
+                         Grid.Column="1"
+                         PreviewTextInput="CharacterIdTextBox_PreviewTextInput" />
+                <TextBlock Grid.Column="2"
+                           Margin="12,0,0,0"
+                           Text="用于 UI_Navichara_&lt;id&gt; / UI_NaviChara_&lt;id&gt;"
+                           Foreground="#5E6B7A"
+                           VerticalAlignment="Center" />
+            </Grid>
+
+            <TextBlock Text="高级选项"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,10" />
+            <WrapPanel>
+                <CheckBox x:Name="ExtractSpritesCheckBox" Content="ExtractSprites" />
+                <CheckBox x:Name="WriteValidationFramesCheckBox" Content="WriteValidationFrames" />
+                <CheckBox x:Name="StrictCheckBox" Content="Strict" />
+                <CheckBox x:Name="AutoCenterCheckBox" Content="AutoCenter" IsChecked="True" />
+                <CheckBox x:Name="BakeSampledCurvesCheckBox" Content="BakeSampledCurves" />
+                <CheckBox x:Name="AllowPlaceholderClipsCheckBox" Content="AllowPlaceholderClips" />
+            </WrapPanel>
+        </StackPanel>
+
+        <Border Grid.Row="2"
+                BorderBrush="#D7DDE5"
+                BorderThickness="0,1,0,0"
+                Padding="0,14,0,0">
+            <DockPanel LastChildFill="False">
+                <TextBlock x:Name="ErrorTextBlock"
+                           DockPanel.Dock="Left"
+                           Foreground="#B42318"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="取消"
+                            Margin="0,0,8,0"
+                            IsCancel="True" />
+                    <Button Content="确定"
+                            IsDefault="True"
+                            Click="Ok_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

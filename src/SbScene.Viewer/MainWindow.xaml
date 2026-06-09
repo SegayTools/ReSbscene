@@ -37,38 +37,54 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,0,0,1" Padding="12,10">
+        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D7DDE5" BorderThickness="0,0,0,1" Padding="0">
             <DockPanel LastChildFill="True">
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                    <Button Content="打开 sbscene" Click="OpenScene_Click" />
-                    <Button Content="绑定 SVO" Click="OpenSvo_Click" />
-                    <Button Content="重新载入" Click="Reload_Click" />
-                    <Button Content="适合窗口" Click="Fit_Click" />
-                    <CheckBox x:Name="ShowHiddenCheckBox"
-                              Content="隐藏节点也绘制"
-                              Checked="RenderOption_Changed"
-                              Unchecked="RenderOption_Changed" />
-                    <CheckBox x:Name="ShowMarkersCheckBox"
-                              Content="调试节点标记"
-                              IsChecked="False"
-                              Checked="RenderOption_Changed"
-                              Unchecked="RenderOption_Changed" />
-                </StackPanel>
-                <StackPanel Margin="15,0,5,0" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="缩放" VerticalAlignment="Center" Foreground="#5E6B7A" />
-                    <Slider x:Name="ZoomSlider"
-                            Width="160"
-                            Minimum="0.1"
-                            Maximum="4"
-                            TickFrequency="0.1"
-                            Value="1"
-                            ValueChanged="ZoomSlider_ValueChanged" />
-                    <TextBlock x:Name="ZoomTextBlock"
-                               Width="52"
-                               TextAlignment="Right"
-                               VerticalAlignment="Center"
-                               Foreground="#5E6B7A" />
-                </StackPanel>
+                <Menu DockPanel.Dock="Top" Background="#FFFFFF" Padding="8,2">
+                    <MenuItem Header="文件">
+                        <MenuItem Header="打开 sbscene..." Click="OpenScene_Click" />
+                        <MenuItem Header="绑定 SVO..." Click="OpenSvo_Click" />
+                        <Separator />
+                        <MenuItem Header="重新载入" Click="Reload_Click" />
+                        <Separator />
+                        <MenuItem Header="导出 GIF..." Click="ExportGif_Click" />
+                    </MenuItem>
+                    <MenuItem Header="查看">
+                        <MenuItem Header="适合窗口" Click="Fit_Click" />
+                        <Separator />
+                        <MenuItem x:Name="ShowHiddenCheckBox"
+                                  Header="隐藏节点也绘制"
+                                  IsCheckable="True"
+                                  Checked="RenderOption_Changed"
+                                  Unchecked="RenderOption_Changed" />
+                        <MenuItem x:Name="ShowMarkersCheckBox"
+                                  Header="调试节点标记"
+                                  IsCheckable="True"
+                                  IsChecked="False"
+                                  Checked="RenderOption_Changed"
+                                  Unchecked="RenderOption_Changed" />
+                    </MenuItem>
+                    <MenuItem Header="Unity 导出">
+                        <MenuItem Header="生成 profiletemplate JSON..." Click="ExportUnityNavicharaProfileTemplate_Click" />
+                        <MenuItem Header="根据 profiletemplate 生成 navichara-export.json..." Click="ExportUnityNavichara_Click" />
+                    </MenuItem>
+                </Menu>
+                <DockPanel Margin="12,8,12,10" LastChildFill="False">
+                    <StackPanel Margin="15,0,5,0" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="缩放" VerticalAlignment="Center" Foreground="#5E6B7A" />
+                        <Slider x:Name="ZoomSlider"
+                                Width="160"
+                                Minimum="0.1"
+                                Maximum="4"
+                                TickFrequency="0.1"
+                                Value="1"
+                                ValueChanged="ZoomSlider_ValueChanged" />
+                        <TextBlock x:Name="ZoomTextBlock"
+                                   Width="52"
+                                   TextAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Foreground="#5E6B7A" />
+                    </StackPanel>
+                </DockPanel>
             </DockPanel>
         </Border>
 
@@ -254,8 +270,8 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="260" />
-                    <ColumnDefinition Width="140" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -309,6 +325,7 @@
                           Unchecked="LockAnimationSlot_Changed" />
                 <CheckBox x:Name="LoopAnimationCheckBox"
                           Grid.Column="8"
+                          Margin="5,0,5,0"
                           Content="循环"
                           Checked="LoopAnimation_Changed"
                           Unchecked="LoopAnimation_Changed" />
