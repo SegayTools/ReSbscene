@@ -13,13 +13,26 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
 {
     private const string ImportRootDir = "Assets/importResult/navichara";
 
-    private const string AdditiveUiShaderSource =
-@"Shader ""SbScene/UI/Additive""
+    private static readonly string UvTransformUiShaderSource = BuildUiUvTransformShaderSource(
+        "SbScene/UI/UVTransform",
+        "Blend SrcAlpha OneMinusSrcAlpha");
+
+    private static readonly string AdditiveUiShaderSource = BuildUiUvTransformShaderSource(
+        "SbScene/UI/Additive",
+@"BlendOp Add, Max
+        Blend SrcAlpha One, One One");
+
+    private static string BuildUiUvTransformShaderSource(string shaderName, string blendBlock)
+    {
+        return @"Shader """ + shaderName + @"""
 {
     Properties
     {
         [PerRendererData] _MainTex (""Sprite Texture"", 2D) = ""white"" {}
         _Color (""Tint"", Color) = (1,1,1,1)
+        _SbSceneUvRect (""SbScene UV Rect"", Vector) = (0,0,1,1)
+        _SbSceneFlip (""SbScene Flip"", Vector) = (0,0,0,0)
+        _SbSceneUvMode (""SbScene UV Mode"", Float) = 0
         _StencilComp (""Stencil Comparison"", Float) = 8
         _Stencil (""Stencil ID"", Float) = 0
         _StencilOp (""Stencil Operation"", Float) = 0
@@ -53,8 +66,7 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
         Lighting Off
         ZWrite Off
         ZTest [unity_GUIZTestMode]
-        BlendOp Add, Max
-        Blend SrcAlpha One, One One
+        " + blendBlock + @"
         ColorMask [_ColorMask]
 
         Pass
@@ -88,13 +100,61 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
             fixed4 _Color;
             float4 _MainTex_ST;
             float4 _ClipRect;
+            float4 _SbSceneUvRect;
+            float4 _SbSceneFlip;
+            float _SbSceneUvMode;
+
+            float2 SbSceneTransformUv(float2 uv)
+            {
+                float2 minUv = _SbSceneUvRect.xy;
+                float2 maxUv = _SbSceneUvRect.zw;
+                float2 sizeUv = max(abs(maxUv - minUv), float2(0.000001, 0.000001));
+                float2 p = saturate((uv - minUv) / sizeUv);
+
+                float left = _SbSceneFlip.x > 0.5 ? 1.0 : 0.0;
+                float right = _SbSceneFlip.x > 0.5 ? 0.0 : 1.0;
+                float top = _SbSceneFlip.y > 0.5 ? 1.0 : 0.0;
+                float bottom = _SbSceneFlip.y > 0.5 ? 0.0 : 1.0;
+
+                float2 topLeft = float2(left, top);
+                float2 bottomLeft = float2(left, bottom);
+                float2 topRight = float2(right, top);
+                float2 bottomRight = float2(right, bottom);
+                float mode = floor(_SbSceneUvMode + 0.5);
+                if (mode > 0.5 && mode < 1.5)
+                {
+                    topLeft = float2(right, top);
+                    bottomLeft = float2(left, top);
+                    topRight = float2(right, bottom);
+                    bottomRight = float2(left, bottom);
+                }
+                else if (mode > 1.5 && mode < 2.5)
+                {
+                    topLeft = float2(right, bottom);
+                    bottomLeft = float2(right, top);
+                    topRight = float2(left, bottom);
+                    bottomRight = float2(left, top);
+                }
+                else if (mode > 2.5 && mode < 3.5)
+                {
+                    topLeft = float2(left, bottom);
+                    bottomLeft = float2(right, bottom);
+                    topRight = float2(left, top);
+                    bottomRight = float2(right, top);
+                }
+
+                float2 topUv = lerp(topLeft, topRight, p.x);
+                float2 bottomUv = lerp(bottomLeft, bottomRight, p.x);
+                float2 transformed = lerp(topUv, bottomUv, p.y);
+                return minUv + transformed * sizeUv;
+            }
 
             v2f vert(appdata_t v)
             {
                 v2f o;
                 o.worldPosition = v.vertex;
                 o.vertex = UnityObjectToClipPos(v.vertex);
-                o.texcoord = TRANSFORM_TEX(v.texcoord, _MainTex);
+                o.texcoord = SbSceneTransformUv(TRANSFORM_TEX(v.texcoord, _MainTex));
                 o.color = v.color * _Color;
                 return o;
             }
@@ -114,6 +174,7 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
         }
     }
 }";
+    }
 
     private enum ImportMode
     {
@@ -271,7 +332,7 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
             AnimationDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "animation", characterDirName)),
             PrefabDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "prefab")),
             SpriteDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "sprite", "parts", characterDirName)),
-            MaterialDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "material")),
+            MaterialDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "material", characterDirName)),
             ShaderDir = EnsureAssetFolderPath(CombineAssetPath(ImportRootDir, "shader")),
         };
     }
@@ -747,13 +808,10 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
             image.color = color;
         }
 
-        if (node.image.additiveBlend)
+        var material = GetOrCreateImageMaterial(outputPaths, node, image.sprite, diagnostics);
+        if (material != null)
         {
-            var material = GetOrCreateAdditiveMaterial(outputPaths, diagnostics);
-            if (material != null)
-            {
-                image.material = material;
-            }
+            image.material = material;
         }
 
         if (useMultipleImage)
@@ -774,25 +832,102 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
         group.ignoreParentGroups = false;
     }
 
+    private static Material GetOrCreateImageMaterial(ImportPaths outputPaths, NodeDto node, Sprite defaultSprite, List<string> diagnostics)
+    {
+        if (node == null || node.image == null)
+        {
+            return null;
+        }
+
+        if (UsesUvTransform(node.image))
+        {
+            return GetOrCreateUvTransformMaterial(outputPaths, node, defaultSprite, diagnostics);
+        }
+
+        return node.image.additiveBlend
+            ? GetOrCreateAdditiveMaterial(outputPaths, diagnostics)
+            : null;
+    }
+
+    private static bool UsesUvTransform(NodeImageDto image)
+    {
+        return image != null && (image.flipX || image.flipY || image.uvMode != 0);
+    }
+
+    private static Material GetOrCreateUvTransformMaterial(ImportPaths outputPaths, NodeDto node, Sprite defaultSprite, List<string> diagnostics)
+    {
+        var shader = GetOrCreateUiShader(
+            outputPaths,
+            node.image.additiveBlend ? "SbSceneUIAdditive.shader" : "SbSceneUIUVTransform.shader",
+            node.image.additiveBlend ? AdditiveUiShaderSource : UvTransformUiShaderSource,
+            node.image.additiveBlend ? "SbScene/UI/Additive" : "SbScene/UI/UVTransform",
+            diagnostics);
+        if (shader == null)
+        {
+            return null;
+        }
+
+        var materialName = "SbSceneUIUv_" + node.id + "_" + SanitizeAssetFileName(node.unityName);
+        var materialPath = CombineAssetPath(outputPaths.MaterialDir, materialName + ".mat");
+        var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+        if (material == null)
+        {
+            material = new Material(shader)
+            {
+                name = materialName,
+            };
+            AssetDatabase.CreateAsset(material, materialPath);
+        }
+        else if (material.shader != shader)
+        {
+            material.shader = shader;
+        }
+
+        material.SetVector("_SbSceneUvRect", GetSpriteUvRect(defaultSprite));
+        material.SetVector("_SbSceneFlip", new Vector4(node.image.flipX ? 1f : 0f, node.image.flipY ? 1f : 0f, 0f, 0f));
+        material.SetFloat("_SbSceneUvMode", Mathf.Clamp(node.image.uvMode, 0, 3));
+        EditorUtility.SetDirty(material);
+        return material;
+    }
+
+    private static Vector4 GetSpriteUvRect(Sprite sprite)
+    {
+        if (sprite == null)
+        {
+            return new Vector4(0f, 0f, 1f, 1f);
+        }
+
+        try
+        {
+            return UnityEngine.Sprites.DataUtility.GetOuterUV(sprite);
+        }
+        catch
+        {
+            var texture = sprite.texture;
+            if (texture == null || texture.width <= 0 || texture.height <= 0)
+            {
+                return new Vector4(0f, 0f, 1f, 1f);
+            }
+
+            var rect = sprite.textureRect;
+            return new Vector4(
+                rect.xMin / texture.width,
+                rect.yMin / texture.height,
+                rect.xMax / texture.width,
+                rect.yMax / texture.height);
+        }
+    }
+
     private static Material GetOrCreateAdditiveMaterial(ImportPaths outputPaths, List<string> diagnostics)
     {
-        var shaderPath = CombineAssetPath(outputPaths.ShaderDir, "SbSceneUIAdditive.shader");
-        var shaderAbsolutePath = ToAbsoluteAssetPath(shaderPath);
-        if (!File.Exists(shaderAbsolutePath) || File.ReadAllText(shaderAbsolutePath) != AdditiveUiShaderSource)
-        {
-            File.WriteAllText(shaderAbsolutePath, AdditiveUiShaderSource, new UTF8Encoding(false));
-            AssetDatabase.ImportAsset(shaderPath, ImportAssetOptions.ForceUpdate);
-        }
-
-        var shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+        var shader = GetOrCreateUiShader(
+            outputPaths,
+            "SbSceneUIAdditive.shader",
+            AdditiveUiShaderSource,
+            "SbScene/UI/Additive",
+            diagnostics);
         if (shader == null)
         {
-            shader = Shader.Find("SbScene/UI/Additive");
-        }
-
-        if (shader == null)
-        {
-            diagnostics.Add("Cannot create additive material; shader did not import: " + shaderPath);
             return null;
         }
 
@@ -813,6 +948,35 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
         }
 
         return material;
+    }
+
+    private static Shader GetOrCreateUiShader(
+        ImportPaths outputPaths,
+        string fileName,
+        string source,
+        string shaderName,
+        List<string> diagnostics)
+    {
+        var shaderPath = CombineAssetPath(outputPaths.ShaderDir, fileName);
+        var shaderAbsolutePath = ToAbsoluteAssetPath(shaderPath);
+        if (!File.Exists(shaderAbsolutePath) || File.ReadAllText(shaderAbsolutePath) != source)
+        {
+            File.WriteAllText(shaderAbsolutePath, source, new UTF8Encoding(false));
+            AssetDatabase.ImportAsset(shaderPath, ImportAssetOptions.ForceUpdate);
+        }
+
+        var shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+        if (shader == null)
+        {
+            shader = Shader.Find(shaderName);
+        }
+
+        if (shader == null)
+        {
+            diagnostics.Add("Cannot create UI material; shader did not import: " + shaderPath);
+        }
+
+        return shader;
     }
 
     private static Sprite[] ResolveSprites(string[] ids, Dictionary<string, Sprite> sprites)
@@ -1228,6 +1392,9 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
         public string component;
         public int drawMode;
         public bool additiveBlend;
+        public bool flipX;
+        public bool flipY;
+        public int uvMode;
         public string[] primarySprites;
         public string[] secondarySprites;
         public int defaultPrimaryIndex;

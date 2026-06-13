@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SbScene.Core.Output;
+using SbScene.Core.Rendering;
 using SbScene.Core.Resources;
 using SbScene.Core.Semantics;
 using SbScene.Core.Unity;
@@ -444,6 +445,62 @@ public sealed class UnityNavicharaExporterTests
         Assert.NotNull(node.Image);
         Assert.Equal(1, node.Image.DrawMode);
         Assert.True(node.Image.AdditiveBlend);
+    }
+
+    [Fact]
+    public void ExportPreservesImageCastUvTransformFlags()
+    {
+        const int uvMode = 2;
+        var flags = SbSceneImageCastConventions.HorizontalFlipMask
+            | SbSceneImageCastConventions.VerticalFlipMask
+            | (uvMode << 6);
+        var scene = Scene(
+            [Node(0, "Base")],
+            [ImageCast(castIndex: 0, width: 96, height: 94, pivotX: 48, pivotY: 47, imageCastFlags: flags)],
+            Animation(
+                "Action_Wait1",
+                endFrame: 10,
+                Motion(0, Track(0, Key(0, 0), Key(10, 0)))));
+        using var temp = new TemporaryDirectory();
+        var sbscenePath = Path.Combine(temp.Path, "test.sbscene");
+        File.WriteAllText(sbscenePath, "hash-source");
+        var profile = new UnityNavicharaExportProfile
+        {
+            Clips =
+            {
+                ["Navi_Default"] = new UnityNavicharaProfileClip
+                {
+                    Loop = true,
+                    DurationFrames = "autoMax",
+                    SourceSlots =
+                    [
+                        new UnityNavicharaSourceSlot
+                        {
+                            Animation = "Action_Wait1",
+                            Frame = "curve",
+                        },
+                    ],
+                },
+            },
+        };
+
+        var result = UnityNavicharaExporter.Export(
+            scene,
+            sbscenePath,
+            "test.svo",
+            temp.Path,
+            new UnityNavicharaExportOptions
+            {
+                CharacterId = 27,
+                Profile = profile,
+                AllowPlaceholderClips = true,
+            });
+
+        var node = Assert.Single(result.Export.Nodes.Where(node => node.Id == 0));
+        Assert.NotNull(node.Image);
+        Assert.True(node.Image.FlipX);
+        Assert.True(node.Image.FlipY);
+        Assert.Equal(uvMode, node.Image.UvMode);
     }
 
     [Fact]

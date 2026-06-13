@@ -417,6 +417,21 @@ public sealed class UnityNavicharaNodeImage
     public required bool AdditiveBlend { get; init; }
 
     /// <summary>
+    /// 获取或设置水平UV翻转开关，用于在 Unity 端还原 CIMG 纹理坐标语义。
+    /// </summary>
+    public required bool FlipX { get; init; }
+
+    /// <summary>
+    /// 获取或设置垂直UV翻转开关，用于在 Unity 端还原 CIMG 纹理坐标语义。
+    /// </summary>
+    public required bool FlipY { get; init; }
+
+    /// <summary>
+    /// 获取或设置UV排列模式，用于在 Unity 端还原 CIMG 纹理坐标语义。
+    /// </summary>
+    public required int UvMode { get; init; }
+
+    /// <summary>
     /// 获取或设置Primary精灵集合，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
     /// </summary>
     public required IReadOnlyList<string> PrimarySprites { get; init; }
