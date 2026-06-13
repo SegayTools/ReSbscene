@@ -119,8 +119,8 @@ SbScene.Cli export-unity-navichara <sbscene> <svo> --out <dir>
 - 首版只支持单个 `.sbscene + .svo` 输入，不做目录批量导出。
 - `dump --json` 不改造成 Unity schema，继续作为 raw 解析证据。
 - 正式动作映射以 `--profile` 或显式 `--map <sourceAnimation=targetClip>` 为准。
-- CLI 可内置低置信度候选映射，但只在 `--write-profile-template` 或 `--auto-map` 的 diagnostics/template 中输出，不静默决定正式映射。
-- `--write-profile-template out\profile.json` 只生成候选 profile，不导出 Unity 中间文件。模板应列出全部 animation 名、index、endFrame、`ANIM.0x5F` default repeat flag、track 摘要和候选目标 clip。
+- CLI 可内置低置信度候选映射，但只在 `--write-profile-template` 生成的 `clips[*].sourceSlots` 中作为初始建议输出，不静默决定正式映射。
+- `--write-profile-template out\profile.json` 只生成候选 profile，不导出 Unity 中间文件。模板只保留可编辑的 settings、commonBaseSourceSlots 和 clips；animation/endFrame/track 摘要在正式产出 `navichara-export.json` 时从 `.sbscene` 重新计算。
 - `--fashion`、`--accessory`、`--position` 是常用固定状态 slot 的快捷参数。它们默认全局作用到 6 个核心目标 clip；`--position` 不默认启用，只有显式传入才加入 `Change_Position[frame]`。
 - 如果同时提供 `--profile` 和快捷参数，快捷参数只覆盖对应固定状态 slot，并在 diagnostics 中记录最终展开后的 `sourceSlots`。
 - 缺核心 clip 映射默认失败；只有显式 `--allow-placeholder-clips` 时才生成 1 帧静态/bind pose 占位 clip，且 diagnostics 必须标明占位。

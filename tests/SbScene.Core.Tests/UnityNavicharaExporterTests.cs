@@ -133,7 +133,7 @@ public sealed class UnityNavicharaExporterTests
     }
 
     [Fact]
-    public void BuildProfileTemplateListsAnimationEndFrameAndCandidateClip()
+    public void BuildProfileTemplateOmitsAnimationsNodeAndKeepsCandidateClipMapping()
     {
         var scene = Scene(
             [Node(0, "Root")],
@@ -143,12 +143,12 @@ public sealed class UnityNavicharaExporterTests
                 Motion(0, Track(1, Key(0, 0), Key(15, 5)))));
 
         var template = UnityNavicharaExporter.BuildProfileTemplate(scene);
+        var json = JsonSerializer.Serialize(template, SbSceneJson.CreateOptions(indented: true));
+        using var document = JsonDocument.Parse(json);
 
-        var animation = Assert.Single(template.Animations);
-        Assert.Equal("Action_Wait1", animation.Name);
-        Assert.Equal(15, animation.EndFrame);
-        Assert.Equal("Navi_Default", animation.CandidateTargetClip);
-        Assert.Equal(1, Assert.Single(animation.Tracks).TrackType);
+        var slot = Assert.Single(template.Clips["Navi_Default"].SourceSlots);
+        Assert.Equal("Action_Wait1", slot.Animation);
+        Assert.False(document.RootElement.TryGetProperty("animations", out _));
     }
 
     [Fact]

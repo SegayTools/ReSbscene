@@ -127,32 +127,21 @@ public static class UnityNavicharaExporter
     {
         ArgumentNullException.ThrowIfNull(scene);
 
-        var animations = scene.Surfboard.Animations
-            .Select(animation => new UnityNavicharaProfileTemplateAnimation
-            {
-                Name = AnimationDisplayName(animation),
-                Index = animation.Index,
-                EndFrame = GetAnimationEndFrame(animation),
-                DefaultRepeat = GetAnimationDefaultRepeat(animation),
-                Tracks = BuildTemplateTracks(scene, animation),
-                CandidateTargetClip = GuessTargetClip(animation.Name),
-            })
-            .ToArray();
         var clips = new Dictionary<string, UnityNavicharaProfileClip>(StringComparer.Ordinal);
         foreach (var coreClip in UnityNavicharaConstants.CoreClipNames)
         {
-            var candidate = animations.FirstOrDefault(animation => string.Equals(animation.CandidateTargetClip, coreClip, StringComparison.Ordinal));
+            var candidateSourceAnimation = FindCandidateSourceAnimation(scene, coreClip);
             clips[coreClip] = new UnityNavicharaProfileClip
             {
                 Loop = UnityNavicharaConstants.DefaultLoop(coreClip),
                 DurationFrames = "autoMax",
-                SourceSlots = candidate is null
+                SourceSlots = candidateSourceAnimation is null
                     ? []
                     :
                     [
                         new UnityNavicharaSourceSlot
                         {
-                            Animation = candidate.Name,
+                            Animation = candidateSourceAnimation,
                             Frame = "curve",
                             Repeat = false,
                         },
@@ -170,9 +159,21 @@ public static class UnityNavicharaExporter
                 RootTransform = new UnityNavicharaRootTransform(),
             },
             CommonBaseSourceSlots = [],
-            Animations = animations,
             Clips = clips,
         };
+    }
+
+    private static string? FindCandidateSourceAnimation(SbSceneFile scene, string coreClip)
+    {
+        foreach (var animation in scene.Surfboard.Animations)
+        {
+            if (string.Equals(GuessTargetClip(animation.Name), coreClip, StringComparison.Ordinal))
+            {
+                return AnimationDisplayName(animation);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1452,31 +1453,6 @@ public static class UnityNavicharaExporter
         }
     }
 
-    private static IReadOnlyList<UnityNavicharaProfileTemplateTrack> BuildTemplateTracks(SbSceneFile scene, AnimationInfo animation)
-    {
-        var tracks = new List<UnityNavicharaProfileTemplateTrack>();
-        foreach (var motion in animation.Motions)
-        {
-            var nodeId = ResolveMotionNodeIndex(scene.Surfboard.Nodes, motion) ?? -1;
-            var node = nodeId >= 0 && nodeId < scene.Surfboard.Nodes.Count ? scene.Surfboard.Nodes[nodeId] : null;
-            tracks.AddRange(motion.Tracks.Select(track => new UnityNavicharaProfileTemplateTrack
-            {
-                NodeId = nodeId,
-                NodeName = node?.Name,
-                TrackType = track.TrackType ?? -1,
-                TrackTypeName = track.TrackTypeName,
-                FirstFrame = track.FirstFrame,
-                LastFrame = track.LastFrame,
-                KeyCount = track.Keyframes.Count,
-            }));
-        }
-
-        return tracks
-            .OrderBy(static track => track.NodeId)
-            .ThenBy(static track => track.TrackType)
-            .ToArray();
-    }
-
     private static string? GuessTargetClip(string? animationName)
     {
         if (string.IsNullOrWhiteSpace(animationName))
@@ -1567,16 +1543,6 @@ public static class UnityNavicharaExporter
     private static int GetAnimationMaxKeyFrame(AnimationInfo animation)
     {
         return SbSceneAnimationTimeline.GetMaxKeyFrame(animation);
-    }
-
-    private static bool GetAnimationDefaultRepeat(AnimationInfo animation)
-    {
-        return GetNumericFieldInt(animation.NumericFields, "0x5F") == 1;
-    }
-
-    private static int? GetNumericFieldInt(IReadOnlyList<FieldValueSummary> fields, string idHex)
-    {
-        return SbSceneAnimationTimeline.GetNumericFieldInt(fields, idHex);
     }
 
     private static IReadOnlyList<int> BuildValidationFrames(int durationFrames)

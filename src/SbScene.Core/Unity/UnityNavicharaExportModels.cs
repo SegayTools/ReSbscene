@@ -949,91 +949,9 @@ public sealed class UnityNavicharaProfileTemplate
     public required IReadOnlyList<UnityNavicharaSourceSlot> CommonBaseSourceSlots { get; init; }
 
     /// <summary>
-    /// 获取或设置动画集合，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
-    /// </summary>
-    public required IReadOnlyList<UnityNavicharaProfileTemplateAnimation> Animations { get; init; }
-
-    /// <summary>
     /// 获取或设置动画剪辑集合，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
     /// </summary>
     public required Dictionary<string, UnityNavicharaProfileClip> Clips { get; init; }
-}
-
-/// <summary>
-/// 表示配置模板中的候选动画条目。
-/// </summary>
-public sealed class UnityNavicharaProfileTemplateAnimation
-{
-    /// <summary>
-    /// 获取或设置名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
-    /// </summary>
-    public required string Name { get; init; }
-
-    /// <summary>
-    /// 获取或设置索引，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
-    /// </summary>
-    public required int Index { get; init; }
-
-    /// <summary>
-    /// 获取或设置结束帧，用于对应原始二进制范围、格式标记或载荷内容，支撑解析校验、定位和 inspect 输出。
-    /// </summary>
-    public required int EndFrame { get; init; }
-
-    /// <summary>
-    /// 获取或设置默认Repeat，用于描述动画时间轴、关键帧值或插值方式，影响采样、渲染和导出曲线。
-    /// </summary>
-    public required bool DefaultRepeat { get; init; }
-
-    /// <summary>
-    /// 获取或设置轨道集合，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
-    /// </summary>
-    public required IReadOnlyList<UnityNavicharaProfileTemplateTrack> Tracks { get; init; }
-
-    /// <summary>
-    /// 获取或设置Candidate目标剪辑，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
-    /// </summary>
-    public string? CandidateTargetClip { get; init; }
-}
-
-/// <summary>
-/// 表示配置模板中的候选轨道条目。
-/// </summary>
-public sealed class UnityNavicharaProfileTemplateTrack
-{
-    /// <summary>
-    /// 获取或设置节点标识，用于关联场景节点、资源引用、导出实体或原始文件中的对应关系。
-    /// </summary>
-    public required int NodeId { get; init; }
-
-    /// <summary>
-    /// 获取或设置节点名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
-    /// </summary>
-    public string? NodeName { get; init; }
-
-    /// <summary>
-    /// 获取或设置轨道类型，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
-    /// </summary>
-    public required int TrackType { get; init; }
-
-    /// <summary>
-    /// 获取或设置轨道类型名称，用于识别格式、语义类别或序列化字段身份，帮助处理流程选择正确分支。
-    /// </summary>
-    public string? TrackTypeName { get; init; }
-
-    /// <summary>
-    /// 获取或设置First帧，用于选择、采样或描述动画时间轴，影响渲染帧和导出剪辑生成。
-    /// </summary>
-    public int? FirstFrame { get; init; }
-
-    /// <summary>
-    /// 获取或设置上次使用的帧，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
-    /// </summary>
-    public int? LastFrame { get; init; }
-
-    /// <summary>
-    /// 获取或设置Key数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
-    /// </summary>
-    public required int KeyCount { get; init; }
 }
 
 /// <summary>
