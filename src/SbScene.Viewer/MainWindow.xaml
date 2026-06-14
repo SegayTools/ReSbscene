@@ -66,6 +66,8 @@
                     <MenuItem Header="Unity 导出">
                         <MenuItem Header="生成 profiletemplate JSON..." Click="ExportUnityNavicharaProfileTemplate_Click" />
                         <MenuItem Header="根据 profiletemplate 生成 navichara-export.json..." Click="ExportUnityNavichara_Click" />
+                        <Separator />
+                        <MenuItem Header="修补 NavigationCharacter prefab AB..." Click="PatchNavigationCharacterPrefab_Click" />
                     </MenuItem>
                 </Menu>
                 <DockPanel Margin="12,8,12,10" LastChildFill="False">

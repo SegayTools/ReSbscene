@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\NavigationCharacterPatcher\NavigationCharacterPatcher.csproj" />
     <ProjectReference Include="..\SbScene.Core\SbScene.Core.csproj" />
   </ItemGroup>
 

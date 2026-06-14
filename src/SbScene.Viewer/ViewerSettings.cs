@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using NavigationCharacterPatcher;
 
 namespace SbScene.Viewer;
 
@@ -61,6 +62,36 @@ internal sealed class ViewerSettings
     /// 获取或设置上次使用的Unity NaviChara是否允许Placeholder动画剪辑集合，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
     /// </summary>
     public bool LastUnityNavicharaAllowPlaceholderClips { get; set; }
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 的输入路径，用于恢复 Viewer 上次使用的修补设置。
+    /// </summary>
+    public string? LastNavigationCharacterPatchInputPath { get; set; }
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 的输出路径，用于恢复 Viewer 上次使用的修补设置。
+    /// </summary>
+    public string? LastNavigationCharacterPatchOutputPath { get; set; }
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 的目标脚本 PathID。
+    /// </summary>
+    public long LastNavigationCharacterPatchPathId { get; set; } = NavigationCharacterScriptPatcher.DefaultScriptPathId;
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 的脚本类名。
+    /// </summary>
+    public string LastNavigationCharacterPatchScriptName { get; set; } = NavigationCharacterScriptPatcher.DefaultScriptClassName;
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 的输出压缩方式。
+    /// </summary>
+    public string LastNavigationCharacterPatchCompression { get; set; } = "keep";
+
+    /// <summary>
+    /// 获取或设置上次修补 NavigationCharacter prefab AB 是否只执行 dry-run。
+    /// </summary>
+    public bool LastNavigationCharacterPatchDryRun { get; set; }
 
     /// <summary>
     /// 获取或设置上次使用的GIF 导出清单路径，用于恢复 Viewer 上次使用的导出设置，减少重复输入。
@@ -176,6 +207,18 @@ internal sealed class ViewerSettings
         LastUnityNavicharaProfileTemplatePath = NormalizePath(LastUnityNavicharaProfileTemplatePath);
         LastUnityNavicharaProfilePath = NormalizePath(LastUnityNavicharaProfilePath);
         LastUnityNavicharaOutputDirectory = NormalizePath(LastUnityNavicharaOutputDirectory);
+        LastNavigationCharacterPatchInputPath = NormalizePath(LastNavigationCharacterPatchInputPath);
+        LastNavigationCharacterPatchOutputPath = NormalizePath(LastNavigationCharacterPatchOutputPath);
+        if (string.IsNullOrWhiteSpace(LastNavigationCharacterPatchScriptName))
+        {
+            LastNavigationCharacterPatchScriptName = NavigationCharacterScriptPatcher.DefaultScriptClassName;
+        }
+
+        if (!IsNavigationCharacterPatchCompression(LastNavigationCharacterPatchCompression))
+        {
+            LastNavigationCharacterPatchCompression = "keep";
+        }
+
         LastGifExportPath = NormalizePath(LastGifExportPath);
         if (LastGifFps is < 1 or > 60)
         {
@@ -236,6 +279,11 @@ internal sealed class ViewerSettings
     private static string? NormalizePath(string? path)
     {
         return string.IsNullOrWhiteSpace(path) ? null : path;
+    }
+
+    private static bool IsNavigationCharacterPatchCompression(string value)
+    {
+        return value is "keep" or "none" or "lz4" or "lzma";
     }
 
     /// <summary>

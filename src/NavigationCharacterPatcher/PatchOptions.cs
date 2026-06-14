@@ -79,6 +79,11 @@ public sealed class PatchResult
     /// 获取或设置输出输出压缩方式，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
     /// </summary>
     public AssetBundleCompressionType OutputCompression { get; init; }
+
+    /// <summary>
+    /// 获取输出压缩方式名称，供不直接引用 AssetsTools.NET 类型的调用方显示结果。
+    /// </summary>
+    public string OutputCompressionName => OutputCompression.ToString();
 }
 
 /// <summary>

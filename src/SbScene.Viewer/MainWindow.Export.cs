@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using NavigationCharacterPatcher;
 using SbScene.Core.Output;
 using SbScene.Core.Rendering;
 using SbScene.Core.Semantics;
@@ -230,6 +231,79 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void PatchNavigationCharacterPrefab_Click(object sender, RoutedEventArgs e)
+    {
+        const string title = "修补 NavigationCharacter prefab AB";
+        var dialog = new NavigationCharacterPatchDialog(_settings)
+        {
+            Owner = this,
+        };
+
+        if (dialog.ShowDialog() != true || dialog.Result is not { } patchSettings)
+        {
+            return;
+        }
+
+        SaveNavigationCharacterPatchSettings(patchSettings);
+
+        using var busy = BeginBusy(patchSettings.DryRun
+            ? "正在 dry-run 检查 NavigationCharacter prefab AB..."
+            : "正在修补 NavigationCharacter prefab AB...");
+        try
+        {
+            var result = await Task.Run(() =>
+            {
+                var patcher = new NavigationCharacterScriptPatcher();
+                return patcher.Patch(new PatchOptions
+                {
+                    InputPath = patchSettings.InputPath,
+                    OutputPath = patchSettings.OutputPath,
+                    NewScriptPathId = patchSettings.PathId,
+                    ScriptClassName = patchSettings.ScriptName,
+                    Compression = patchSettings.Compression,
+                    DryRun = patchSettings.DryRun,
+                });
+            });
+
+            if (patchSettings.DryRun)
+            {
+                var dryRunMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "dry-run 完成：将修改 {0:N0} 个 MonoBehaviour。\n\n输入：{1}\n脚本类名：{2}\n目标 PathID：{3}",
+                    result.ModifiedCount,
+                    patchSettings.InputPath,
+                    patchSettings.ScriptName,
+                    patchSettings.PathId);
+                SetStatus($"dry-run 完成：将修改 {result.ModifiedCount:N0} 个 MonoBehaviour。");
+                MessageBox.Show(this, dryRunMessage, title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var outputSize = result.OutputSize > 0 && result.WroteOutput
+                ? result.OutputSize
+                : new FileInfo(patchSettings.OutputPath).Length;
+            var message = string.Format(
+                CultureInfo.InvariantCulture,
+                "修补完成：修改 {0:N0} 个 MonoBehaviour。\n\n输出：{1}\n压缩方式：{2}\n输出大小：{3}",
+                result.ModifiedCount,
+                patchSettings.OutputPath,
+                result.OutputCompressionName,
+                FormatByteSize(outputSize));
+            SetStatus($"NavigationCharacter prefab AB 修补完成：修改 {result.ModifiedCount:N0} 个 MonoBehaviour，输出 {patchSettings.OutputPath}");
+            MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (PatchTargetNotFoundException ex)
+        {
+            MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            SetStatus($"NavigationCharacter prefab AB 未找到目标：{ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+            SetStatus($"NavigationCharacter prefab AB 修补失败：{ex.Message}");
+        }
+    }
+
     private IReadOnlyList<SbSceneAnimationSelection> BuildGifAnimationSelections(bool includeCharacterDefaults)
     {
         if (_scene is null)
@@ -298,6 +372,17 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
+    private void SaveNavigationCharacterPatchSettings(NavigationCharacterPatchDialogResult patchSettings)
+    {
+        _settings.LastNavigationCharacterPatchInputPath = patchSettings.InputPath;
+        _settings.LastNavigationCharacterPatchOutputPath = patchSettings.OutputPath;
+        _settings.LastNavigationCharacterPatchPathId = patchSettings.PathId;
+        _settings.LastNavigationCharacterPatchScriptName = patchSettings.ScriptName;
+        _settings.LastNavigationCharacterPatchCompression = patchSettings.CompressionValue;
+        _settings.LastNavigationCharacterPatchDryRun = patchSettings.DryRun;
+        _settings.Save();
+    }
+
     private void SaveGifExportSettings(GifExportDialogResult gifSettings)
     {
         _settings.LastGifExportPath = gifSettings.OutputPath;
@@ -337,6 +422,22 @@ public partial class MainWindow : Window
     {
         MessageBox.Show(this, message, "Unity NaviChara 导出", MessageBoxButton.OK, MessageBoxImage.Information);
         SetStatus(message);
+    }
+
+    private static string FormatByteSize(long bytes)
+    {
+        string[] units = ["B", "KiB", "MiB", "GiB"];
+        var value = (double)Math.Max(0, bytes);
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        return unitIndex == 0
+            ? string.Format(CultureInfo.InvariantCulture, "{0:N0} {1}", value, units[unitIndex])
+            : string.Format(CultureInfo.InvariantCulture, "{0:N2} {1} ({2:N0} B)", value, units[unitIndex], bytes);
     }
 
     private static JsonSerializerOptions CreateUnityNavicharaJsonOptions(bool indented)

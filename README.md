@@ -163,6 +163,7 @@ Viewer 面向交互式检查：
 - 播放动画、选择动画槽位和帧。
 - 调整渲染质量、缩放、背景和隐藏节点显示。
 - 从 UI 执行 GIF 导出或 Unity NaviChara 导出。
+- 在 `Unity 导出` 菜单执行 `修补 NavigationCharacter prefab AB...`，对 prefab AssetBundle 做 dry-run 或写出修补后的 AB。
 
 CLI 更适合批处理和可复现输出；Viewer 更适合人工检查节点、动画和资源对应关系。
 
@@ -235,6 +236,8 @@ var frameState = SbSceneAnimationFrameBuilder.Build(
 ## NavigationCharacterPatcher 示例
 
 该工具不依赖 `SbScene.Core`，用于 Unity AssetBundle 修补：
+
+也可以在 Viewer 的 `Unity 导出` 菜单中使用 `修补 NavigationCharacter prefab AB...` 图形入口；命令行仍适合批处理。
 
 ```powershell
 dotnet run --project src\NavigationCharacterPatcher\NavigationCharacterPatcher.csproj -- UI_Navichara_27.ab --dry-run
