@@ -269,13 +269,31 @@ public partial class MainWindow : Window
             {
                 var dryRunMessage = string.Format(
                     CultureInfo.InvariantCulture,
-                    "dry-run 完成：将修改 {0:N0} 个 MonoBehaviour。\n\n输入：{1}\n脚本类名：{2}\n目标 PathID：{3}",
-                    result.ModifiedCount,
+                    "dry-run 完成：将修改 {0:N0} 个 MonoScript PathID、{1:N0} 个 MonoBehaviour 引用。\n\n输入：{2}\n脚本类名：{3}\n目标 PathID：{4}\n有效引用：{5:N0}",
+                    result.ModifiedScriptCount,
+                    result.ModifiedBehaviourCount,
                     patchSettings.InputPath,
                     patchSettings.ScriptName,
-                    patchSettings.PathId);
-                SetStatus($"dry-run 完成：将修改 {result.ModifiedCount:N0} 个 MonoBehaviour。");
+                    patchSettings.PathId,
+                    result.VerifiedBehaviourCount);
+                SetStatus(
+                    $"dry-run 完成：将修改 {result.ModifiedScriptCount:N0} 个 MonoScript PathID、" +
+                    $"{result.ModifiedBehaviourCount:N0} 个 MonoBehaviour 引用。");
                 MessageBox.Show(this, dryRunMessage, title, MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (!result.WroteOutput)
+            {
+                var unchangedMessage = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "无需修改。\n\n输入：{0}\n脚本类名：{1}\n目标 PathID：{2}\n有效引用：{3:N0}",
+                    patchSettings.InputPath,
+                    patchSettings.ScriptName,
+                    patchSettings.PathId,
+                    result.VerifiedBehaviourCount);
+                SetStatus($"NavigationCharacter prefab AB 无需修改：有效引用 {result.VerifiedBehaviourCount:N0} 个。");
+                MessageBox.Show(this, unchangedMessage, title, MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -284,12 +302,16 @@ public partial class MainWindow : Window
                 : new FileInfo(patchSettings.OutputPath).Length;
             var message = string.Format(
                 CultureInfo.InvariantCulture,
-                "修补完成：修改 {0:N0} 个 MonoBehaviour。\n\n输出：{1}\n压缩方式：{2}\n输出大小：{3}",
-                result.ModifiedCount,
+                "修补完成：修改 {0:N0} 个 MonoScript PathID、{1:N0} 个 MonoBehaviour 引用。\n\n输出：{2}\n压缩方式：{3}\n输出大小：{4}\n有效引用：{5:N0}",
+                result.ModifiedScriptCount,
+                result.ModifiedBehaviourCount,
                 patchSettings.OutputPath,
                 result.OutputCompressionName,
-                FormatByteSize(outputSize));
-            SetStatus($"NavigationCharacter prefab AB 修补完成：修改 {result.ModifiedCount:N0} 个 MonoBehaviour，输出 {patchSettings.OutputPath}");
+                FormatByteSize(outputSize),
+                result.VerifiedBehaviourCount);
+            SetStatus(
+                $"NavigationCharacter prefab AB 修补完成：修改 {result.ModifiedScriptCount:N0} 个 MonoScript PathID、" +
+                $"{result.ModifiedBehaviourCount:N0} 个 MonoBehaviour 引用，输出 {patchSettings.OutputPath}");
             MessageBox.Show(this, message, title, MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (PatchTargetNotFoundException ex)

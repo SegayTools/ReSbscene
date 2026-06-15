@@ -36,7 +36,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock Grid.Row="0"
-                   Text="改写 prefab AssetBundle 内 NavigationCharacter MonoBehaviour 的 m_Script.m_PathID。"
+                   Text="校正 prefab AssetBundle 内 NavigationCharacter MonoScript PathID 和 MonoBehaviour m_Script 引用。"
                    Foreground="#4D5968"
                    TextWrapping="Wrap" />
 

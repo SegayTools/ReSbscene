@@ -11,6 +11,7 @@ using UnityEngine;
 public static class SbSceneAssetBundleBuilder
 {
     private const string MenuPath = "Tools/SbScene/Build AssetBundles From Folder...";
+    private const string AssetBundleSourceRoot = "Assets/AssetBundle";
     private const string OutputRelativePath = "out/AssetBundles";
 
     [MenuItem(MenuPath)]
@@ -43,7 +44,12 @@ public static class SbSceneAssetBundleBuilder
         }
 
         var selectedAssetPath = ToAssetPath(selectedFullPath, assetsFullPath);
-        var builds = CollectAssetBundleBuilds(selectedAssetPath).ToArray();
+        if (!IsInsideOrSameAssetPath(selectedAssetPath, AssetBundleSourceRoot))
+        {
+            throw new InvalidOperationException("Select a folder under Assets/AssetBundle so AssetBundle names stay relative to the game load root.");
+        }
+
+        var builds = CollectAssetBundleBuilds(selectedAssetPath, AssetBundleSourceRoot).ToArray();
         if (builds.Length == 0)
         {
             EditorUtility.DisplayDialog("SbScene AssetBundles", "No valid assets were found in the selected folder.", "OK");
@@ -105,7 +111,7 @@ public static class SbSceneAssetBundleBuilder
         return (bool)property.GetValue(null, null);
     }
 
-    private static IEnumerable<AssetBundleBuild> CollectAssetBundleBuilds(string selectedAssetPath)
+    private static IEnumerable<AssetBundleBuild> CollectAssetBundleBuilds(string selectedAssetPath, string bundleRootAssetPath)
     {
         var usedBundleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var assetPath in EnumerateAssetPaths(selectedAssetPath))
@@ -115,7 +121,7 @@ public static class SbSceneAssetBundleBuilder
                 continue;
             }
 
-            var bundleName = CreateUniqueBundleName(CreateBundleName(selectedAssetPath, assetPath), usedBundleNames);
+            var bundleName = CreateUniqueBundleName(CreateBundleName(bundleRootAssetPath, assetPath), usedBundleNames);
             yield return new AssetBundleBuild
             {
                 assetBundleName = bundleName,
@@ -164,9 +170,9 @@ public static class SbSceneAssetBundleBuilder
         return !(mainAsset is MonoScript) && !(mainAsset is DefaultAsset);
     }
 
-    private static string CreateBundleName(string selectedAssetPath, string assetPath)
+    private static string CreateBundleName(string bundleRootAssetPath, string assetPath)
     {
-        var selectedPath = NormalizeAssetPath(selectedAssetPath).TrimEnd('/');
+        var selectedPath = NormalizeAssetPath(bundleRootAssetPath).TrimEnd('/');
         var normalizedAssetPath = NormalizeAssetPath(assetPath);
         var relativePath = normalizedAssetPath.Substring(selectedPath.Length).TrimStart('/');
         var withoutExtension = Path.Combine(
@@ -237,6 +243,14 @@ public static class SbSceneAssetBundleBuilder
         return string.Equals(path, directory, StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith(directory.TrimEnd('/', '\\') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith(directory.TrimEnd('/', '\\') + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsInsideOrSameAssetPath(string path, string directory)
+    {
+        var normalizedPath = NormalizeAssetPath(path).TrimEnd('/');
+        var normalizedDirectory = NormalizeAssetPath(directory).TrimEnd('/');
+        return string.Equals(normalizedPath, normalizedDirectory, StringComparison.OrdinalIgnoreCase) ||
+            normalizedPath.StartsWith(normalizedDirectory + "/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void RecreateDirectory(string path)

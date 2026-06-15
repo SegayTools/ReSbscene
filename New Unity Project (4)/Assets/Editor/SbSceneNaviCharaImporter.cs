@@ -11,7 +11,7 @@ using UnityEngine.UI;
 
 public sealed class SbSceneNaviCharaImporter : EditorWindow
 {
-    private const string ImportRootDir = "Assets/importResult/navichara";
+    private const string ImportRootDir = "Assets/AssetBundle/navichara";
 
     private static readonly string UvTransformUiShaderSource = BuildUiUvTransformShaderSource(
         "SbScene/UI/UVTransform",
@@ -412,7 +412,7 @@ public sealed class SbSceneNaviCharaImporter : EditorWindow
             }
             catch (Exception ex)
             {
-                diagnostics.Add("Failed to copy sprite to import result: " + sourceAbsolutePath + " -> " + destinationAssetPath + " (" + ex.Message + ")");
+                diagnostics.Add("Failed to copy sprite to AssetBundle source folder: " + sourceAbsolutePath + " -> " + destinationAssetPath + " (" + ex.Message + ")");
                 return null;
             }
 

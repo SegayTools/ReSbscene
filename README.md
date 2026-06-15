@@ -167,6 +167,22 @@ Viewer 面向交互式检查：
 
 CLI 更适合批处理和可复现输出；Viewer 更适合人工检查节点、动画和资源对应关系。
 
+## Unity 工程导入和 AB 打包
+
+Unity 参考工程中的 `Tools/SbScene/Import NaviChara Export...` 会把生成资源导入到 `Assets/AssetBundle/navichara`，例如 prefab 写入：
+
+```text
+Assets/AssetBundle/navichara/prefab/UI_Navichara_15.prefab
+```
+
+`Tools/SbScene/Build AssetBundles From Folder...` 需要选择 `Assets/AssetBundle` 或其子目录。重新打包时，AssetBundle 名称固定按 `Assets/AssetBundle` 下的相对路径生成，不使用绝对路径，例如：
+
+- `navichara/prefab/ui_navichara_15.ab`
+- `navichara/animation/ui_navichara_15/navi_default.ab`
+- `navichara/animation/ui_navichara_15/ui_navichara_15.ab`
+
+sprite、material、shader 等资源也按同一规则生成相对路径 bundle 名。
+
 ## Core 基本示例
 
 `SbScene.Core` 可以直接被其他 .NET 程序引用。

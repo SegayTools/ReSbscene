@@ -30,7 +30,7 @@ public sealed class PatchOptions
     public required string OutputPath { get; init; }
 
     /// <summary>
-    /// 表示NewScript路径标识，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。
+    /// 表示NewScript路径标识，用于指定目标 MonoScript PathID，并同步 MonoBehaviour.m_Script 引用。
     /// </summary>
     public long NewScriptPathId { get; init; } = NavigationCharacterScriptPatcher.DefaultScriptPathId;
 
@@ -64,6 +64,21 @@ public sealed class PatchResult
     /// 获取或设置Modified数量，用于报告数量或统计值，便于调用方校验结构规模和处理结果。
     /// </summary>
     public required int ModifiedCount { get; init; }
+
+    /// <summary>
+    /// 获取或设置被重写 PathID 的 MonoScript 数量。
+    /// </summary>
+    public int ModifiedScriptCount { get; init; }
+
+    /// <summary>
+    /// 获取或设置被修正 m_Script 引用的 MonoBehaviour 数量。
+    /// </summary>
+    public int ModifiedBehaviourCount { get; init; }
+
+    /// <summary>
+    /// 获取或设置最终指向目标 MonoScript PathID 的 MonoBehaviour 数量。
+    /// </summary>
+    public int VerifiedBehaviourCount { get; init; }
 
     /// <summary>
     /// 获取或设置输出文件写出状态，用于定位输入输出资源或记录来源，保证后续读写指向正确对象。

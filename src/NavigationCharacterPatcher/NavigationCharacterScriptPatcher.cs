@@ -4,7 +4,7 @@ using AssetsTools.NET.Extra;
 namespace NavigationCharacterPatcher;
 
 /// <summary>
-/// 提供 NavigationCharacter 脚本引用修补器，用于改写 AssetBundle 中 MonoBehaviour 的脚本 PathID。
+/// 提供 NavigationCharacter 脚本引用修补器，用于校正 AssetBundle 中 MonoScript PathID 和 MonoBehaviour 脚本引用。
 /// </summary>
 public sealed class NavigationCharacterScriptPatcher
 {
@@ -30,7 +30,7 @@ public sealed class NavigationCharacterScriptPatcher
     }
 
     /// <summary>
-    /// 改写 AssetBundle 中 NavigationCharacter 的 MonoBehaviour 脚本引用，并返回写出统计。
+    /// 改写 AssetBundle 中 NavigationCharacter 的 MonoScript PathID 和 MonoBehaviour 脚本引用，并返回写出统计。
     /// </summary>
     /// <param name="options">控制本次处理行为的选项。</param>
     /// <returns>包含目标脚本 PathID、改写数量、输出状态和压缩方式的修补结果。</returns>
@@ -42,7 +42,7 @@ public sealed class NavigationCharacterScriptPatcher
     ///     InputPath = "UI_Navichara_27.ab",
     ///     OutputPath = "UI_Navichara_27.patched.ab",
     /// });
-    /// Console.WriteLine(result.ModifiedCount);
+    /// Console.WriteLine(result.ModifiedScriptCount + result.ModifiedBehaviourCount);
     /// </code>
     /// </example>
     public PatchResult Patch(PatchOptions options)
@@ -71,6 +71,9 @@ public sealed class NavigationCharacterScriptPatcher
 
         var directoryInfos = bundle.file.BlockAndDirInfo.DirectoryInfos;
         int totalModified = 0;
+        int totalModifiedScripts = 0;
+        int totalModifiedBehaviours = 0;
+        int totalVerifiedBehaviours = 0;
         long scriptPathId = 0;
         bool foundScript = false;
 
@@ -100,11 +103,17 @@ public sealed class NavigationCharacterScriptPatcher
             scriptPathId = localScriptPathId;
             _log($"在 {bundle.file.GetFileName(dirIndex)} 找到脚本 {options.ScriptClassName}: m_PathID={localScriptPathId}");
 
-            int modifiedInFile = PatchMonoBehaviours(manager, assetsInst, localScriptPathId, options.NewScriptPathId);
-            totalModified += modifiedInFile;
-            _log($"  改写 MonoBehaviour 数量: {modifiedInFile} -> m_Script.m_PathID={options.NewScriptPathId}");
+            var patchStats = PatchAssetsFile(manager, assetsInst, localScriptPathId, options.NewScriptPathId);
+            totalModified += patchStats.TotalModified;
+            totalModifiedScripts += patchStats.ModifiedScripts;
+            totalModifiedBehaviours += patchStats.ModifiedBehaviours;
+            totalVerifiedBehaviours += patchStats.VerifiedBehaviours;
+            _log(
+                $"  改写 MonoScript PathID 数量: {patchStats.ModifiedScripts}, " +
+                $"改写 MonoBehaviour m_Script 数量: {patchStats.ModifiedBehaviours}, " +
+                $"最终有效引用数量: {patchStats.VerifiedBehaviours}");
 
-            if (modifiedInFile > 0 && !options.DryRun)
+            if (patchStats.TotalModified > 0 && !options.DryRun)
             {
                 directoryInfos[dirIndex].SetNewData(WriteAssetsFile(assetsFile));
             }
@@ -120,8 +129,22 @@ public sealed class NavigationCharacterScriptPatcher
         if (totalModified == 0)
         {
             manager.UnloadAll(true);
-            throw new PatchTargetNotFoundException(
-                $"找到了脚本 {options.ScriptClassName}，但没有任何 MonoBehaviour 引用它，无需修改。");
+            if (totalVerifiedBehaviours == 0)
+            {
+                throw new PatchTargetNotFoundException(
+                    $"找到了脚本 {options.ScriptClassName}，但没有任何 MonoBehaviour 引用它，无需修改。");
+            }
+
+            _log($"bundle 已经满足 {options.ScriptClassName} 的目标 PathID，无需修改。");
+            return new PatchResult
+            {
+                ScriptPathId = scriptPathId,
+                ModifiedCount = 0,
+                ModifiedScriptCount = 0,
+                ModifiedBehaviourCount = 0,
+                VerifiedBehaviourCount = totalVerifiedBehaviours,
+                WroteOutput = false,
+            };
         }
 
         if (options.DryRun)
@@ -132,6 +155,9 @@ public sealed class NavigationCharacterScriptPatcher
             {
                 ScriptPathId = scriptPathId,
                 ModifiedCount = totalModified,
+                ModifiedScriptCount = totalModifiedScripts,
+                ModifiedBehaviourCount = totalModifiedBehaviours,
+                VerifiedBehaviourCount = totalVerifiedBehaviours,
                 WroteOutput = false,
             };
         }
@@ -147,19 +173,30 @@ public sealed class NavigationCharacterScriptPatcher
         WriteOutputFile(options.OutputPath, finalBundle);
         _log($"已写出: {options.OutputPath} ({finalBundle.Length} 字节, 压缩: {targetCompression})");
 
-        int verified = VerifyOutput(finalBundle, options.NewScriptPathId);
-        if (verified != totalModified)
+        var verified = VerifyOutput(finalBundle, options.ScriptClassName, options.NewScriptPathId);
+        if (!verified.HasTargetScript)
         {
             throw new InvalidOperationException(
-                $"校验失败: 期望 {totalModified} 个 MonoBehaviour 指向新 PathID，实际 {verified} 个。");
+                $"校验失败: 输出中不存在 {options.ScriptClassName} MonoScript PathID={options.NewScriptPathId}。");
         }
 
-        _log($"校验通过: {verified} 个 MonoBehaviour 已指向 m_Script.m_PathID={options.NewScriptPathId}");
+        if (verified.BehaviourCount != totalVerifiedBehaviours)
+        {
+            throw new InvalidOperationException(
+                $"校验失败: 期望 {totalVerifiedBehaviours} 个 MonoBehaviour 指向新 PathID，实际 {verified.BehaviourCount} 个。");
+        }
+
+        _log(
+            $"校验通过: {verified.BehaviourCount} 个 MonoBehaviour 已指向 " +
+            $"{options.ScriptClassName} MonoScript m_PathID={options.NewScriptPathId}");
 
         return new PatchResult
         {
             ScriptPathId = scriptPathId,
             ModifiedCount = totalModified,
+            ModifiedScriptCount = totalModifiedScripts,
+            ModifiedBehaviourCount = totalModifiedBehaviours,
+            VerifiedBehaviourCount = verified.BehaviourCount,
             WroteOutput = true,
             OutputSize = finalBundle.Length,
             OutputCompression = targetCompression,
@@ -188,13 +225,24 @@ public sealed class NavigationCharacterScriptPatcher
         return false;
     }
 
-    private static int PatchMonoBehaviours(
+    private static PatchStats PatchAssetsFile(
         AssetsManager manager,
         AssetsFileInstance assetsInst,
         long currentScriptPathId,
         long newScriptPathId)
     {
-        int modified = 0;
+        EnsurePathIdCanBeUsed(assetsInst, currentScriptPathId, newScriptPathId);
+
+        int modifiedScripts = 0;
+        if (currentScriptPathId != newScriptPathId)
+        {
+            var scriptInfo = assetsInst.file.GetAssetInfo(currentScriptPathId);
+            scriptInfo.PathId = newScriptPathId;
+            modifiedScripts = 1;
+        }
+
+        int modifiedBehaviours = 0;
+        int verifiedBehaviours = 0;
         foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.MonoBehaviour))
         {
             var baseField = manager.GetBaseField(assetsInst, info, AssetReadFlags.None);
@@ -205,17 +253,46 @@ public sealed class NavigationCharacterScriptPatcher
             }
 
             // m_FileID == 0 表示脚本在同一序列化文件内（本地引用）。
-            if (scriptPtr["m_FileID"].AsInt != 0 || scriptPtr["m_PathID"].AsLong != currentScriptPathId)
+            if (scriptPtr["m_FileID"].AsInt != 0)
             {
                 continue;
             }
 
-            scriptPtr["m_PathID"].AsLong = newScriptPathId;
-            info.SetNewData(baseField);
-            modified++;
+            var scriptPathId = scriptPtr["m_PathID"].AsLong;
+            if (scriptPathId == currentScriptPathId && currentScriptPathId != newScriptPathId)
+            {
+                scriptPtr["m_PathID"].AsLong = newScriptPathId;
+                info.SetNewData(baseField);
+                modifiedBehaviours++;
+                verifiedBehaviours++;
+            }
+            else if (scriptPathId == newScriptPathId)
+            {
+                verifiedBehaviours++;
+            }
         }
 
-        return modified;
+        return new PatchStats(modifiedScripts, modifiedBehaviours, verifiedBehaviours);
+    }
+
+    private static void EnsurePathIdCanBeUsed(
+        AssetsFileInstance assetsInst,
+        long currentScriptPathId,
+        long newScriptPathId)
+    {
+        if (currentScriptPathId == newScriptPathId)
+        {
+            return;
+        }
+
+        foreach (var info in assetsInst.file.AssetInfos)
+        {
+            if (info.PathId == newScriptPathId)
+            {
+                throw new InvalidOperationException(
+                    $"目标 PathID={newScriptPathId} 已被其他资源占用，不能用于 NavigationCharacter MonoScript。");
+            }
+        }
     }
 
     private static AssetBundleCompressionType ResolveCompression(
@@ -276,12 +353,13 @@ public sealed class NavigationCharacterScriptPatcher
         }
     }
 
-    private static int VerifyOutput(byte[] bundleBytes, long expectedScriptPathId)
+    private static VerifyResult VerifyOutput(byte[] bundleBytes, string scriptClassName, long expectedScriptPathId)
     {
         var manager = new AssetsManager();
         try
         {
             var bundle = manager.LoadBundleFile(new MemoryStream(bundleBytes), "verify.ab", true);
+            bool hasTargetScript = false;
             int hits = 0;
             var directoryInfos = bundle.file.BlockAndDirInfo.DirectoryInfos;
             for (var dirIndex = 0; dirIndex < directoryInfos.Count; dirIndex++)
@@ -292,17 +370,35 @@ public sealed class NavigationCharacterScriptPatcher
                 }
 
                 var assetsInst = manager.LoadAssetsFileFromBundle(bundle, dirIndex, false);
+                foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.MonoScript))
+                {
+                    if (info.PathId != expectedScriptPathId)
+                    {
+                        continue;
+                    }
+
+                    var baseField = manager.GetBaseField(assetsInst, info, AssetReadFlags.None);
+                    var classNameField = baseField["m_ClassName"];
+                    if (!classNameField.IsDummy &&
+                        string.Equals(classNameField.AsString, scriptClassName, StringComparison.Ordinal))
+                    {
+                        hasTargetScript = true;
+                    }
+                }
+
                 foreach (var info in assetsInst.file.GetAssetsOfType(AssetClassID.MonoBehaviour))
                 {
                     var scriptPtr = manager.GetBaseField(assetsInst, info, AssetReadFlags.None)["m_Script"];
-                    if (!scriptPtr.IsDummy && scriptPtr["m_PathID"].AsLong == expectedScriptPathId)
+                    if (!scriptPtr.IsDummy &&
+                        scriptPtr["m_FileID"].AsInt == 0 &&
+                        scriptPtr["m_PathID"].AsLong == expectedScriptPathId)
                     {
                         hits++;
                     }
                 }
             }
 
-            return hits;
+            return new VerifyResult(hasTargetScript, hits);
         }
         finally
         {
@@ -328,4 +424,14 @@ public sealed class NavigationCharacterScriptPatcher
 
         File.Move(tempPath, outputPath);
     }
+
+    private readonly record struct PatchStats(
+        int ModifiedScripts,
+        int ModifiedBehaviours,
+        int VerifiedBehaviours)
+    {
+        public int TotalModified => ModifiedScripts + ModifiedBehaviours;
+    }
+
+    private readonly record struct VerifyResult(bool HasTargetScript, int BehaviourCount);
 }

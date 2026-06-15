@@ -102,9 +102,25 @@ static int Run(string[] args)
         DryRun = dryRun,
     });
 
-    Console.WriteLine(result.WroteOutput
-        ? $"完成: 修改 {result.ModifiedCount} 个 MonoBehaviour。"
-        : $"dry-run: 将修改 {result.ModifiedCount} 个 MonoBehaviour。");
+    if (result.WroteOutput)
+    {
+        Console.WriteLine(
+            $"完成: 修改 {result.ModifiedScriptCount} 个 MonoScript PathID, " +
+            $"{result.ModifiedBehaviourCount} 个 MonoBehaviour 引用；" +
+            $"有效引用 {result.VerifiedBehaviourCount} 个。");
+    }
+    else if (dryRun)
+    {
+        Console.WriteLine(
+            $"dry-run: 将修改 {result.ModifiedScriptCount} 个 MonoScript PathID, " +
+            $"{result.ModifiedBehaviourCount} 个 MonoBehaviour 引用；" +
+            $"有效引用 {result.VerifiedBehaviourCount} 个。");
+    }
+    else
+    {
+        Console.WriteLine($"完成: 无需修改；有效引用 {result.VerifiedBehaviourCount} 个。");
+    }
+
     return 0;
 }
 
@@ -140,14 +156,14 @@ static bool TryParseCompression(string value, out BundleCompression compression)
 
 static void PrintUsage()
 {
-    Console.WriteLine("NavigationCharacterPatcher — 修改 prefab ab 内 NavigationCharacter 脚本的 m_Script.m_PathID");
+    Console.WriteLine("NavigationCharacterPatcher — 校正 prefab ab 内 NavigationCharacter MonoScript PathID 和 m_Script 引用");
     Console.WriteLine();
     Console.WriteLine("用法:");
     Console.WriteLine("  NavigationCharacterPatcher <input.ab> [选项]");
     Console.WriteLine();
     Console.WriteLine("选项:");
     Console.WriteLine("  -o, --output <path>      输出 ab 路径 (默认: <input>.patched.ab)");
-    Console.WriteLine($"      --path-id <long>     目标 m_Script.m_PathID (默认: {NavigationCharacterScriptPatcher.DefaultScriptPathId})");
+    Console.WriteLine($"      --path-id <long>     目标 MonoScript PathID / m_Script.m_PathID (默认: {NavigationCharacterScriptPatcher.DefaultScriptPathId})");
     Console.WriteLine($"      --script-name <name> 要定位的脚本类名 (默认: {NavigationCharacterScriptPatcher.DefaultScriptClassName})");
     Console.WriteLine("      --compression <type> keep|none|lz4|lzma (默认: keep，沿用输入压缩)");
     Console.WriteLine("      --dry-run            只报告将修改的数量，不写出文件");
