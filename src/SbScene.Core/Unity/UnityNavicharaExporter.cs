@@ -231,9 +231,10 @@ public static class UnityNavicharaExporter
     }
 
     /// <summary>
-    /// 计算 bind 状态可见内容的世界包围盒中心,把它平移到 Unity 原点,结果写入 rootTransform.offset。
-    /// renderer 包围盒为 sbscene 场景坐标(Y-down),导出端节点用 Y-up(<see cref="ToUnityY"/> = -y),
-    /// 故 offset.X = -(left+right)/2,offset.Y = (top+bottom)/2(Y 翻转抵消取负)。
+    /// 计算 bind 状态可见内容的世界包围盒中心,先把它平移到 Unity 原点,再叠加 profile 的 rootTransform.offset。
+    /// renderer 包围盒为 sbscene 场景坐标(Y-down),导出端节点用 Y-up(<see cref="ToUnityY"/> = -y)。
+    /// Unity 导入端把 rootTransform.scale 写到根节点 localScale,把 rootTransform.offset 写到根节点 anchoredPosition,
+    /// 因此最终 offset = autoCenterOffset * scale + profileOffset。
     /// </summary>
     private static UnityNavicharaSettings ApplyAutoCenter(
         SbSceneFile scene,
@@ -247,18 +248,8 @@ public static class UnityNavicharaExporter
             return settings;
         }
 
-        // profile 显式给了非零 offset 视为手动指定,让位不覆盖。
-        var existingOffset = settings.RootTransform.Offset;
-        if (Math.Abs(existingOffset.X) > Epsilon || Math.Abs(existingOffset.Y) > Epsilon)
-        {
-            diagnostics.Add(new UnityNavicharaDiagnostic
-            {
-                Severity = "info",
-                Code = "AutoCenterSkippedExplicitOffset",
-                Message = $"Auto-center skipped because profile rootTransform.offset is set to ({existingOffset.X}, {existingOffset.Y}).",
-            });
-            return settings;
-        }
+        var profileOffset = settings.RootTransform.Offset;
+        var scale = settings.RootTransform.Scale;
 
         // 包围盒基于 commonBase 烘焙后的 bind 状态,确保与静态 prefab 实际显示的部件一致。
         var bounds = SbScenePngRenderer.ComputeContentBounds(scene, baseState);
@@ -275,17 +266,22 @@ public static class UnityNavicharaExporter
 
         var centerX = (bounds.Left + bounds.Right) / 2.0;
         var centerYScene = (bounds.Top + bounds.Bottom) / 2.0;
-        var offset = new UnityNavicharaVector2
+        var autoCenterOffset = new UnityNavicharaVector2
         {
             X = -centerX,
             Y = centerYScene,
+        };
+        var offset = new UnityNavicharaVector2
+        {
+            X = autoCenterOffset.X * scale + profileOffset.X,
+            Y = autoCenterOffset.Y * scale + profileOffset.Y,
         };
 
         diagnostics.Add(new UnityNavicharaDiagnostic
         {
             Severity = "info",
             Code = "AutoCenterApplied",
-            Message = $"Auto-centered character: bind bounds x[{bounds.Left:0.#},{bounds.Right:0.#}] y[{bounds.Top:0.#},{bounds.Bottom:0.#}] -> rootTransform.offset ({offset.X:0.#}, {offset.Y:0.#}).",
+            Message = $"Auto-centered character: bind bounds x[{bounds.Left:0.#},{bounds.Right:0.#}] y[{bounds.Top:0.#},{bounds.Bottom:0.#}] -> autoCenterOffset ({autoCenterOffset.X:0.#}, {autoCenterOffset.Y:0.#}), scale {scale:0.###}, profileOffset ({profileOffset.X:0.#}, {profileOffset.Y:0.#}), rootTransform.offset ({offset.X:0.#}, {offset.Y:0.#}).",
         });
 
         return new UnityNavicharaSettings

@@ -643,7 +643,7 @@ public sealed class UnityNavicharaExporterTests
     }
 
     [Fact]
-    public void ExportDoesNotOverrideExplicitProfileOffset()
+    public void ExportAddsExplicitProfileOffsetAfterAutoCenter()
     {
         var scene = Scene(
             [Node(0, "Body", translationX: 200, translationY: 120)],
@@ -661,7 +661,7 @@ public sealed class UnityNavicharaExporterTests
             {
                 RootTransform = new UnityNavicharaRootTransform
                 {
-                    Scale = 1.0,
+                    Scale = 2.0,
                     Offset = new UnityNavicharaVector2 { X = 5, Y = -7 },
                 },
             },
@@ -696,9 +696,9 @@ public sealed class UnityNavicharaExporterTests
             });
 
         var offset = result.Export.Settings.RootTransform.Offset;
-        Assert.Equal(5, offset.X, precision: 6);
-        Assert.Equal(-7, offset.Y, precision: 6);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "AutoCenterSkippedExplicitOffset");
+        Assert.Equal(-395, offset.X, precision: 6);
+        Assert.Equal(233, offset.Y, precision: 6);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "AutoCenterApplied");
     }
 
     private static UnityNavicharaExportProfile CenterTestProfile()
