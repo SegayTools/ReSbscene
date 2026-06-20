@@ -12,28 +12,117 @@ using UnityEngine.UI;
 
 public static class SbScenePartnerResultBuilder
 {
-    private const string MenuPath = "Tools/SbScene/Build PartnerResult Bundles";
+    private const string MenuPath = "Tools/SbScene/Build Partner(Result) Bundles";
     private const string PrefabDir = "Assets/AssetBundle/navichara/prefab";
     private const string PartnerAssetDir = "Assets/AssetBundle/Partner";
+    private const string PartnerBackAssetPath = "Assets/AssetBundle/misc/partner_back.png";
+    private const string PartnerFrontAssetPath = "Assets/AssetBundle/misc/partner_front.png";
     private const string OutputRelativePath = "out/AssetBundles";
     private const int OutputSize = 512;
     private const int RenderScale = 2;
-    private const int RenderSize = OutputSize * RenderScale;
+    private const float PortraitTargetHeadWidth = OutputSize * 0.48f;
+    private const float PortraitTargetHeadHeight = OutputSize * 0.50f;
+    private const float PortraitTargetUpperWidth = OutputSize * 0.92f;
+    private const float PortraitTargetUpperHeight = OutputSize * 1.00f;
+    private const float PortraitTargetHeadCenterY = OutputSize * 0.14f;
+    private const float PortraitZoomFactor = 1.08f;
+    private const float PortraitSafeMargin = 12f;
+    private static readonly string[] HeadCenterNameParts =
+    {
+        "face",
+        "eye",
+        "eyebrow",
+        "mouth",
+        "nose",
+        "head_l",
+        "head_r",
+        "front_hair",
+        "side_hair",
+        "hair_base",
+    };
+
+    private static readonly string[] LowerBodyNameParts =
+    {
+        "leg",
+        "pants",
+        "foot",
+        "shoe",
+        "skirt",
+        "twintail",
+        "tail",
+    };
+    private static readonly string[] PartnerHeadShotNameParts =
+    {
+        "head",
+        "face",
+        "eye",
+        "eyebrow",
+        "brow",
+        "mouth",
+        "mouse",
+        "nose",
+        "hair",
+        "front",
+        "top",
+        "tragi",
+        "ear",
+        "headdress",
+        "hat",
+        "bonbon",
+        "highlight",
+    };
+    private static readonly PartnerRenderSpec[] PartnerRenderSpecs =
+    {
+        new PartnerRenderSpec(
+            "PartnerResult",
+            "UI_PartnerResult",
+            "partner/ui_partnerresult",
+            OutputSize,
+            RenderScale,
+            PortraitTargetHeadWidth / (float)OutputSize,
+            PortraitTargetHeadHeight / (float)OutputSize,
+            PortraitTargetUpperWidth / (float)OutputSize,
+            PortraitTargetUpperHeight / (float)OutputSize,
+            PortraitTargetHeadCenterY / (float)OutputSize,
+            PortraitZoomFactor,
+            PortraitSafeMargin,
+            true,
+            PartnerRenderMode.Portrait),
+        new PartnerRenderSpec(
+            "Partner",
+            "UI_Partner",
+            "partner/ui_partner",
+            128,
+            RenderScale,
+            PortraitTargetHeadWidth / (float)OutputSize,
+            PortraitTargetHeadHeight / (float)OutputSize,
+            PortraitTargetUpperWidth / (float)OutputSize,
+            PortraitTargetUpperHeight / (float)OutputSize,
+            PortraitTargetHeadCenterY / (float)OutputSize,
+            1f,
+            0f,
+            false,
+            PartnerRenderMode.HeadShot),
+    };
     private static readonly Regex PrefabNamePattern = new Regex(
         @"^UI_Navichara_(\d{1,6})\.prefab$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     [MenuItem(MenuPath)]
-    private static void BuildPartnerResultBundles()
+    private static void BuildPartnerBundles()
+    {
+        BuildPartnerBundlesMenu();
+    }
+
+    private static void BuildPartnerBundlesMenu()
     {
         try
         {
             var result = BuildAll();
             var message = string.Format(
                 CultureInfo.InvariantCulture,
-                "Generated {0} PartnerResult bundle(s).\nSkipped: {1}\nFailed: {2}\nOutput: {3}",
+                "Generated {0} bundle(s).\nFailed: {1}\nOutput: {2}",
                 result.SuccessCount,
-                result.SkippedCount,
                 result.Failures.Count,
                 NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath, "partner")));
             if (result.Failures.Count > 0)
@@ -41,24 +130,23 @@ public static class SbScenePartnerResultBuilder
                 message += "\n\nFailures:\n" + string.Join("\n", result.Failures.ToArray());
             }
 
-            EditorUtility.DisplayDialog("SbScene PartnerResult", message, "OK");
+            EditorUtility.DisplayDialog("SbScene Partner", message, "OK");
         }
         catch (Exception ex)
         {
             Debug.LogException(ex);
-            EditorUtility.DisplayDialog("SbScene PartnerResult", ex.Message, "OK");
+            EditorUtility.DisplayDialog("SbScene Partner", ex.Message, "OK");
         }
     }
 
-    public static void BuildPartnerResultBundlesBatch()
+    public static void BuildPartnerBundlesBatch()
     {
         var result = BuildAll();
         var outputPath = NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath, "partner"));
         Debug.Log(string.Format(
             CultureInfo.InvariantCulture,
-            "Generated {0} PartnerResult bundle(s). Skipped: {1}. Failed: {2}. Output: {3}",
+            "Generated {0} bundle(s). Failed: {1}. Output: {2}",
             result.SuccessCount,
-            result.SkippedCount,
             result.Failures.Count,
             outputPath));
         foreach (var failure in result.Failures)
@@ -68,7 +156,7 @@ public static class SbScenePartnerResultBuilder
 
         if (result.Failures.Count > 0)
         {
-            throw new InvalidOperationException("PartnerResult bundle build failed.");
+            throw new InvalidOperationException("Partner bundle build failed.");
         }
     }
 
@@ -82,7 +170,6 @@ public static class SbScenePartnerResultBuilder
         {
             return new BuildSummary
             {
-                SkippedCount = 0,
                 SuccessCount = 0,
             };
         }
@@ -91,14 +178,17 @@ public static class SbScenePartnerResultBuilder
         var failures = new List<string>();
         foreach (var prefab in prefabs)
         {
-            try
+            foreach (var spec in PartnerRenderSpecs)
             {
-                var pngAssetPath = RenderPartnerPng(prefab);
-                generatedPngs.Add(new GeneratedPartnerPng(prefab.Id, pngAssetPath));
-            }
-            catch (Exception ex)
-            {
-                failures.Add(string.Format(CultureInfo.InvariantCulture, "{0}: {1}", prefab.AssetPath, ex.Message));
+                try
+                {
+                    var pngAssetPath = RenderPartnerPng(prefab, spec);
+                    generatedPngs.Add(new GeneratedPartnerPng(prefab.Id, pngAssetPath, spec.BundleNamePrefix));
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(string.Format(CultureInfo.InvariantCulture, "{0} [{1}]: {2}", prefab.AssetPath, spec.Label, ex.Message));
+                }
             }
         }
 
@@ -107,7 +197,7 @@ public static class SbScenePartnerResultBuilder
         var builds = generatedPngs
             .Select(item => new AssetBundleBuild
             {
-                assetBundleName = string.Format(CultureInfo.InvariantCulture, "partner/ui_partnerresult_{0:D6}.ab", item.Id),
+                assetBundleName = string.Format(CultureInfo.InvariantCulture, "{0}_{1:D6}.ab", item.BundleNamePrefix, item.Id),
                 assetNames = new[] { item.AssetPath },
             })
             .ToArray();
@@ -131,7 +221,6 @@ public static class SbScenePartnerResultBuilder
         return new BuildSummary
         {
             SuccessCount = generatedPngs.Count,
-            SkippedCount = prefabs.Length - generatedPngs.Count - failures.Count,
             Failures = failures,
         };
     }
@@ -163,7 +252,7 @@ public static class SbScenePartnerResultBuilder
         }
     }
 
-    private static string RenderPartnerPng(PartnerPrefab prefab)
+    private static string RenderPartnerPng(PartnerPrefab prefab, PartnerRenderSpec spec)
     {
         var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefab.AssetPath);
         if (source == null)
@@ -173,19 +262,20 @@ public static class SbScenePartnerResultBuilder
 
         var pngAssetPath = string.Format(
             CultureInfo.InvariantCulture,
-            "{0}/UI_PartnerResult_{1:D6}.png",
+            "{0}/{1}_{2:D6}.png",
             PartnerAssetDir,
+            spec.AssetNamePrefix,
             prefab.Id);
         var pngAbsolutePath = ToAbsoluteAssetPath(pngAssetPath);
         Directory.CreateDirectory(Path.GetDirectoryName(pngAbsolutePath) ?? ".");
 
-        var sceneRoot = new GameObject("SbScenePartnerResultRenderRoot");
+        var sceneRoot = new GameObject("SbScene" + spec.Label + "RenderRoot");
         sceneRoot.hideFlags = HideFlags.HideAndDontSave;
-        var cameraObject = new GameObject("SbScenePartnerResultCamera");
+        var cameraObject = new GameObject("SbScene" + spec.Label + "Camera");
         cameraObject.hideFlags = HideFlags.HideAndDontSave;
-        var canvasObject = new GameObject("SbScenePartnerResultCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        var canvasObject = new GameObject("SbScene" + spec.Label + "Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasObject.hideFlags = HideFlags.HideAndDontSave;
-        var renderTexture = new RenderTexture(RenderSize, RenderSize, 24, RenderTextureFormat.ARGB32);
+        var renderTexture = new RenderTexture(spec.RenderSize, spec.RenderSize, 24, RenderTextureFormat.ARGB32);
         var previousActive = RenderTexture.active;
         Camera camera = null;
         try
@@ -195,7 +285,7 @@ public static class SbScenePartnerResultBuilder
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
             camera.orthographic = true;
-            camera.orthographicSize = OutputSize / 2f;
+            camera.orthographicSize = spec.OutputSize / 2f;
             camera.nearClipPlane = -100f;
             camera.farClipPlane = 100f;
             camera.transform.position = new Vector3(0f, 0f, -10f);
@@ -212,7 +302,7 @@ public static class SbScenePartnerResultBuilder
             canvasRect.anchorMin = new Vector2(0.5f, 0.5f);
             canvasRect.anchorMax = new Vector2(0.5f, 0.5f);
             canvasRect.pivot = new Vector2(0.5f, 0.5f);
-            canvasRect.sizeDelta = new Vector2(OutputSize, OutputSize);
+            canvasRect.sizeDelta = new Vector2(spec.OutputSize, spec.OutputSize);
             canvasRect.anchoredPosition = Vector2.zero;
             canvasRect.localPosition = Vector3.zero;
             canvasRect.localRotation = Quaternion.identity;
@@ -233,19 +323,49 @@ public static class SbScenePartnerResultBuilder
             LayoutRebuilder.ForceRebuildLayoutImmediate(instance.GetComponent<RectTransform>());
             Canvas.ForceUpdateCanvases();
 
-            var bounds = CalculateVisibleBounds(instance);
-            if (!bounds.HasValue || bounds.Value.size.x <= 0f || bounds.Value.size.y <= 0f)
+            var rootRect = instance.GetComponent<RectTransform>();
+            if (spec.RenderMode == PartnerRenderMode.HeadShot)
             {
-                throw new InvalidOperationException("No visible UI bounds could be measured.");
+                var headShotBounds = CalculatePartnerHeadShotBounds(instance);
+                if (!headShotBounds.HasValue || headShotBounds.Value.size.x <= 0f || headShotBounds.Value.size.y <= 0f)
+                {
+                    throw new InvalidOperationException("No visible Partner head nodes could be measured.");
+                }
+
+                FitToHeadShotFrame(rootRect, headShotBounds.Value, spec);
+            }
+            else
+            {
+                var contentFrame = CalculatePortraitFrame(instance);
+                if (!contentFrame.HasValue || contentFrame.Value.Content.size.x <= 0f || contentFrame.Value.Content.size.y <= 0f)
+                {
+                    throw new InvalidOperationException("No visible UI bounds could be measured.");
+                }
+
+                FitToFullFrame(rootRect, contentFrame.Value.Content, spec);
+                Canvas.ForceUpdateCanvases();
+
+                var portraitFrame = CalculatePortraitFrame(instance);
+                if (!portraitFrame.HasValue || portraitFrame.Value.Content.size.x <= 0f || portraitFrame.Value.Content.size.y <= 0f)
+                {
+                    throw new InvalidOperationException("No visible UI bounds could be measured.");
+                }
+
+                FitToPortraitFrame(rootRect, portraitFrame.Value, spec);
             }
 
-            FitToPartnerFrame(instance.GetComponent<RectTransform>(), bounds.Value);
             Canvas.ForceUpdateCanvases();
 
-            var texture = new Texture2D(OutputSize, OutputSize, TextureFormat.RGBA32, false);
+            var texture = new Texture2D(spec.OutputSize, spec.OutputSize, TextureFormat.RGBA32, false);
             try
             {
-                texture.SetPixels32(RenderStraightAlphaPixels(camera, renderTexture));
+                var pixels = RenderStraightAlphaPixels(camera, renderTexture, spec);
+                if (spec.RenderMode == PartnerRenderMode.HeadShot)
+                {
+                    pixels = CompositePartnerFramePixels(pixels, spec);
+                }
+
+                texture.SetPixels32(pixels);
                 texture.Apply(false, false);
                 File.WriteAllBytes(pngAbsolutePath, texture.EncodeToPNG());
             }
@@ -268,7 +388,7 @@ public static class SbScenePartnerResultBuilder
         }
 
         AssetDatabase.ImportAsset(pngAssetPath, ImportAssetOptions.ForceUpdate);
-        ConfigurePartnerTextureImporter(pngAssetPath);
+        ConfigurePartnerTextureImporter(pngAssetPath, spec);
         return pngAssetPath;
     }
 
@@ -605,30 +725,30 @@ public static class SbScenePartnerResultBuilder
         }
     }
 
-    private static Color32[] RenderStraightAlphaPixels(Camera camera, RenderTexture renderTexture)
+    private static Color32[] RenderStraightAlphaPixels(Camera camera, RenderTexture renderTexture, PartnerRenderSpec spec)
     {
-        var blackPixels = RenderPixels(camera, renderTexture, Color.black);
-        var whitePixels = RenderPixels(camera, renderTexture, Color.white);
-        var output = new Color32[OutputSize * OutputSize];
-        for (var outputY = 0; outputY < OutputSize; outputY++)
+        var blackPixels = RenderPixels(camera, renderTexture, Color.black, spec);
+        var whitePixels = RenderPixels(camera, renderTexture, Color.white, spec);
+        var output = new Color32[spec.OutputSize * spec.OutputSize];
+        for (var outputY = 0; outputY < spec.OutputSize; outputY++)
         {
-            for (var outputX = 0; outputX < OutputSize; outputX++)
+            for (var outputX = 0; outputX < spec.OutputSize; outputX++)
             {
                 var red = 0f;
                 var green = 0f;
                 var blue = 0f;
                 var alpha = 0f;
-                for (var sampleY = 0; sampleY < RenderScale; sampleY++)
+                for (var sampleY = 0; sampleY < spec.RenderScale; sampleY++)
                 {
-                    for (var sampleX = 0; sampleX < RenderScale; sampleX++)
+                    for (var sampleX = 0; sampleX < spec.RenderScale; sampleX++)
                     {
-                        var sampleIndex = ((outputY * RenderScale + sampleY) * RenderSize) + (outputX * RenderScale + sampleX);
+                        var sampleIndex = ((outputY * spec.RenderScale + sampleY) * spec.RenderSize) + (outputX * spec.RenderScale + sampleX);
                         AccumulateStraightAlpha(blackPixels[sampleIndex], whitePixels[sampleIndex], ref red, ref green, ref blue, ref alpha);
                     }
                 }
 
-                var sampleCount = RenderScale * RenderScale;
-                output[outputY * OutputSize + outputX] = new Color32(
+                var sampleCount = spec.RenderScale * spec.RenderScale;
+                output[outputY * spec.OutputSize + outputX] = new Color32(
                     ClampByte(Mathf.RoundToInt(red / sampleCount)),
                     ClampByte(Mathf.RoundToInt(green / sampleCount)),
                     ClampByte(Mathf.RoundToInt(blue / sampleCount)),
@@ -639,17 +759,124 @@ public static class SbScenePartnerResultBuilder
         return output;
     }
 
-    private static Color32[] RenderPixels(Camera camera, RenderTexture renderTexture, Color backgroundColor)
+    private static Color32[] CompositePartnerFramePixels(Color32[] characterPixels, PartnerRenderSpec spec)
+    {
+        var backPixels = LoadResizedPngPixels(PartnerBackAssetPath, spec.OutputSize);
+        var frontPixels = LoadResizedPngPixels(PartnerFrontAssetPath, spec.OutputSize);
+        var output = new Color32[spec.OutputSize * spec.OutputSize];
+        for (var index = 0; index < output.Length; index++)
+        {
+            var pixel = backPixels[index];
+            pixel = AlphaOver(characterPixels[index], pixel);
+            pixel = AlphaOver(frontPixels[index], pixel);
+            output[index] = pixel;
+        }
+
+        return output;
+    }
+
+    private static Color32[] LoadResizedPngPixels(string assetPath, int outputSize)
+    {
+        var absolutePath = ToAbsoluteAssetPath(assetPath);
+        if (!File.Exists(absolutePath))
+        {
+            throw new FileNotFoundException("Partner frame PNG was not found.", absolutePath);
+        }
+
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        try
+        {
+            if (!texture.LoadImage(File.ReadAllBytes(absolutePath)))
+            {
+                throw new InvalidOperationException("Partner frame PNG could not be loaded: " + assetPath);
+            }
+
+            var sourcePixels = texture.GetPixels32();
+            return ResizePixelsBilinear(sourcePixels, texture.width, texture.height, outputSize, outputSize);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+    }
+
+    private static Color32[] ResizePixelsBilinear(Color32[] sourcePixels, int sourceWidth, int sourceHeight, int targetWidth, int targetHeight)
+    {
+        if (sourceWidth == targetWidth && sourceHeight == targetHeight)
+        {
+            var copy = new Color32[sourcePixels.Length];
+            Array.Copy(sourcePixels, copy, sourcePixels.Length);
+            return copy;
+        }
+
+        var output = new Color32[targetWidth * targetHeight];
+        var scaleX = sourceWidth / (float)targetWidth;
+        var scaleY = sourceHeight / (float)targetHeight;
+        for (var y = 0; y < targetHeight; y++)
+        {
+            var sourceY = Mathf.Clamp((y + 0.5f) * scaleY - 0.5f, 0f, sourceHeight - 1f);
+            var y0 = Mathf.FloorToInt(sourceY);
+            var y1 = Mathf.Min(y0 + 1, sourceHeight - 1);
+            var yBlend = sourceY - y0;
+            for (var x = 0; x < targetWidth; x++)
+            {
+                var sourceX = Mathf.Clamp((x + 0.5f) * scaleX - 0.5f, 0f, sourceWidth - 1f);
+                var x0 = Mathf.FloorToInt(sourceX);
+                var x1 = Mathf.Min(x0 + 1, sourceWidth - 1);
+                var xBlend = sourceX - x0;
+                var top = LerpColor32(sourcePixels[y0 * sourceWidth + x0], sourcePixels[y0 * sourceWidth + x1], xBlend);
+                var bottom = LerpColor32(sourcePixels[y1 * sourceWidth + x0], sourcePixels[y1 * sourceWidth + x1], xBlend);
+                output[y * targetWidth + x] = LerpColor32(top, bottom, yBlend);
+            }
+        }
+
+        return output;
+    }
+
+    private static Color32 LerpColor32(Color32 left, Color32 right, float t)
+    {
+        return new Color32(
+            ClampByte(Mathf.RoundToInt(Mathf.Lerp(left.r, right.r, t))),
+            ClampByte(Mathf.RoundToInt(Mathf.Lerp(left.g, right.g, t))),
+            ClampByte(Mathf.RoundToInt(Mathf.Lerp(left.b, right.b, t))),
+            ClampByte(Mathf.RoundToInt(Mathf.Lerp(left.a, right.a, t))));
+    }
+
+    private static Color32 AlphaOver(Color32 foreground, Color32 background)
+    {
+        var foregroundAlpha = foreground.a / 255f;
+        if (foregroundAlpha <= 0.0001f)
+        {
+            return background;
+        }
+
+        var backgroundAlpha = background.a / 255f;
+        var outputAlpha = foregroundAlpha + backgroundAlpha * (1f - foregroundAlpha);
+        if (outputAlpha <= 0.0001f)
+        {
+            return new Color32(0, 0, 0, 0);
+        }
+
+        var foregroundWeight = foregroundAlpha / outputAlpha;
+        var backgroundWeight = backgroundAlpha * (1f - foregroundAlpha) / outputAlpha;
+        return new Color32(
+            ClampByte(Mathf.RoundToInt(foreground.r * foregroundWeight + background.r * backgroundWeight)),
+            ClampByte(Mathf.RoundToInt(foreground.g * foregroundWeight + background.g * backgroundWeight)),
+            ClampByte(Mathf.RoundToInt(foreground.b * foregroundWeight + background.b * backgroundWeight)),
+            ClampByte(Mathf.RoundToInt(outputAlpha * 255f)));
+    }
+
+    private static Color32[] RenderPixels(Camera camera, RenderTexture renderTexture, Color backgroundColor, PartnerRenderSpec spec)
     {
         camera.backgroundColor = backgroundColor;
         RenderTexture.active = renderTexture;
         GL.Clear(true, true, backgroundColor);
         camera.Render();
 
-        var texture = new Texture2D(RenderSize, RenderSize, TextureFormat.RGBA32, false);
+        var texture = new Texture2D(spec.RenderSize, spec.RenderSize, TextureFormat.RGBA32, false);
         try
         {
-            texture.ReadPixels(new Rect(0, 0, RenderSize, RenderSize), 0, 0);
+            texture.ReadPixels(new Rect(0, 0, spec.RenderSize, spec.RenderSize), 0, 0);
             texture.Apply(false, false);
             return texture.GetPixels32();
         }
@@ -697,11 +924,15 @@ public static class SbScenePartnerResultBuilder
         }
     }
 
-    private static Bounds? CalculateVisibleBounds(GameObject root)
+    private static PortraitFrame? CalculatePortraitFrame(GameObject root)
     {
         var corners = new Vector3[4];
-        var hasBounds = false;
-        var bounds = new Bounds();
+        var hasContentBounds = false;
+        var hasHeadBounds = false;
+        var hasUpperBounds = false;
+        var contentBounds = new Bounds();
+        var headBounds = new Bounds();
+        var upperBounds = new Bounds();
         foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
         {
             if (graphic == null || !graphic.enabled || graphic.canvasRenderer == null)
@@ -732,22 +963,182 @@ public static class SbScenePartnerResultBuilder
                 continue;
             }
 
+            var isHead = IsHeadCenterGraphic(graphic.transform);
+            var isUpper = isHead || !IsLowerBodyGraphic(graphic.transform);
             rect.GetWorldCorners(corners);
             for (var index = 0; index < corners.Length; index++)
             {
-                if (!hasBounds)
+                Encapsulate(ref contentBounds, ref hasContentBounds, corners[index]);
+                if (isHead)
                 {
-                    bounds = new Bounds(corners[index], Vector3.zero);
-                    hasBounds = true;
+                    Encapsulate(ref headBounds, ref hasHeadBounds, corners[index]);
                 }
-                else
+
+                if (isUpper)
                 {
-                    bounds.Encapsulate(corners[index]);
+                    Encapsulate(ref upperBounds, ref hasUpperBounds, corners[index]);
                 }
             }
         }
 
-        return hasBounds ? bounds : (Bounds?)null;
+        if (!hasContentBounds)
+        {
+            return null;
+        }
+
+        if (!hasHeadBounds)
+        {
+            headBounds = contentBounds;
+            hasHeadBounds = true;
+        }
+
+        if (!hasUpperBounds)
+        {
+            upperBounds = contentBounds;
+            hasUpperBounds = true;
+        }
+
+        _ = hasHeadBounds;
+        _ = hasUpperBounds;
+        return new PortraitFrame(contentBounds, headBounds, upperBounds);
+    }
+
+    private static Bounds? CalculatePartnerHeadShotBounds(GameObject root)
+    {
+        var corners = new Vector3[4];
+        var hasBounds = false;
+        var bounds = new Bounds();
+        foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
+        {
+            if (!IsVisibleGraphic(graphic) || !IsPartnerHeadShotGraphic(graphic.transform))
+            {
+                continue;
+            }
+
+            graphic.rectTransform.GetWorldCorners(corners);
+            for (var index = 0; index < corners.Length; index++)
+            {
+                Encapsulate(ref bounds, ref hasBounds, corners[index]);
+            }
+        }
+
+        return hasBounds ? (Bounds?)bounds : null;
+    }
+
+    private static bool IsVisibleGraphic(Graphic graphic)
+    {
+        if (graphic == null || !graphic.enabled || graphic.canvasRenderer == null)
+        {
+            return false;
+        }
+
+        var rect = graphic.rectTransform;
+        if (rect == null || rect.rect.width <= 0f || rect.rect.height <= 0f)
+        {
+            return false;
+        }
+
+        var image = graphic as Image;
+        if (image != null && image.sprite == null)
+        {
+            return false;
+        }
+
+        return graphic.color.a > 0.001f && HasVisibleCanvasGroupAlpha(graphic.transform);
+    }
+
+    private static void Encapsulate(ref Bounds bounds, ref bool hasBounds, Vector3 point)
+    {
+        if (!hasBounds)
+        {
+            bounds = new Bounds(point, Vector3.zero);
+            hasBounds = true;
+            return;
+        }
+
+        bounds.Encapsulate(point);
+    }
+
+    private static bool IsHeadCenterGraphic(Transform transform)
+    {
+        for (var current = transform; current != null; current = current.parent)
+        {
+            var normalized = NormalizeName(current.name);
+            for (var index = 0; index < HeadCenterNameParts.Length; index++)
+            {
+                if (normalized.Contains(HeadCenterNameParts[index]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsPartnerHeadShotGraphic(Transform transform)
+    {
+        for (var current = transform; current != null; current = current.parent)
+        {
+            var normalized = NormalizeName(current.name);
+            if (IsLowerBodyName(normalized) || normalized.Contains("body") || normalized.Contains("arm") || normalized.Contains("hand"))
+            {
+                return false;
+            }
+
+            if (IsPartnerHeadRootName(normalized))
+            {
+                return true;
+            }
+
+            for (var index = 0; index < PartnerHeadShotNameParts.Length; index++)
+            {
+                if (normalized.Contains(PartnerHeadShotNameParts[index]))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsPartnerHeadRootName(string normalized)
+    {
+        return normalized == "top03" || normalized == "top02";
+    }
+
+    private static bool IsLowerBodyGraphic(Transform transform)
+    {
+        for (var current = transform; current != null; current = current.parent)
+        {
+            if (IsLowerBodyName(NormalizeName(current.name)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsLowerBodyName(string normalized)
+    {
+        for (var index = 0; index < LowerBodyNameParts.Length; index++)
+        {
+            if (normalized.Contains(LowerBodyNameParts[index]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizeName(string name)
+    {
+        return string.IsNullOrEmpty(name)
+            ? string.Empty
+            : name.ToLowerInvariant();
     }
 
     private static bool HasVisibleCanvasGroupAlpha(Transform transform)
@@ -766,32 +1157,118 @@ public static class SbScenePartnerResultBuilder
         return true;
     }
 
-    private static void FitToPartnerFrame(RectTransform root, Bounds contentBounds)
+    private static void FitToPortraitFrame(RectTransform root, PortraitFrame frame, PartnerRenderSpec spec)
     {
         if (root == null)
         {
             return;
         }
 
-        var scale = Mathf.Min(OutputSize / contentBounds.size.x, OutputSize / contentBounds.size.y);
+        var headBounds = frame.Head;
+        var upperBounds = frame.Upper;
+        var scaleFromHead = Mathf.Min(
+            SafeScale(spec.TargetHeadWidth, headBounds.size.x),
+            SafeScale(spec.TargetHeadHeight, headBounds.size.y));
+        var scaleFromUpper = Mathf.Min(
+            SafeScale(spec.TargetUpperWidth, upperBounds.size.x),
+            SafeScale(spec.TargetUpperHeight, upperBounds.size.y));
+        var scale = Mathf.Min(scaleFromHead, scaleFromUpper);
+        if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0f)
+        {
+            scale = 1f;
+        }
+
+        scale *= spec.ZoomFactor;
+        if (spec.KeepUpperInsideFrame)
+        {
+            scale = ClampScaleToUpperMargins(scale, upperBounds, spec);
+        }
+        var headCenter = headBounds.center;
+        var offset = new Vector2(
+            -headCenter.x * scale,
+            spec.TargetHeadCenterY - headCenter.y * scale);
+
+        root.localScale = root.localScale * scale;
+        root.anchoredPosition += offset;
+    }
+
+    private static void FitToHeadShotFrame(RectTransform root, Bounds headBounds, PartnerRenderSpec spec)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        var targetSize = spec.OutputSize * 0.94f;
+        var scale = Mathf.Min(
+            SafeScale(targetSize, headBounds.size.x),
+            SafeScale(targetSize, headBounds.size.y));
+        if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0f)
+        {
+            scale = 1f;
+        }
+
+        scale *= spec.ZoomFactor;
+        var center = headBounds.center;
+        var offset = new Vector2(
+            -center.x * scale,
+            -center.y * scale);
+
+        root.localScale = root.localScale * scale;
+        root.anchoredPosition += offset;
+    }
+
+    private static void FitToFullFrame(RectTransform root, Bounds contentBounds, PartnerRenderSpec spec)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        var scale = Mathf.Min(
+            SafeScale(spec.OutputSize, contentBounds.size.x),
+            SafeScale(spec.OutputSize, contentBounds.size.y));
         if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0f)
         {
             scale = 1f;
         }
 
         var center = contentBounds.center;
-        var top = contentBounds.max.y;
-        var targetCenterX = 0f;
-        var targetTopY = OutputSize / 2f;
         var offset = new Vector2(
-            targetCenterX - center.x * scale,
-            targetTopY - top * scale);
+            -center.x * scale,
+            -center.y * scale);
 
         root.localScale = root.localScale * scale;
         root.anchoredPosition += offset;
     }
 
-    private static void ConfigurePartnerTextureImporter(string assetPath)
+    private static float SafeScale(float targetSize, float sourceSize)
+    {
+        return sourceSize > 0.0001f ? targetSize / sourceSize : float.PositiveInfinity;
+    }
+
+    private static float ClampScaleToUpperMargins(float scale, Bounds upperBounds, PartnerRenderSpec spec)
+    {
+        var maxScale = float.PositiveInfinity;
+        if (upperBounds.size.x > 0.0001f)
+        {
+            maxScale = Mathf.Min(maxScale, (spec.OutputSize - spec.SafeMargin * 2f) / upperBounds.size.x);
+        }
+
+        if (upperBounds.size.y > 0.0001f)
+        {
+            maxScale = Mathf.Min(maxScale, (spec.OutputSize - spec.SafeMargin * 2f) / upperBounds.size.y);
+        }
+
+        if (float.IsInfinity(maxScale) || float.IsNaN(maxScale) || maxScale <= 0f)
+        {
+            return scale;
+        }
+
+        return Mathf.Min(scale, maxScale);
+    }
+
+    private static void ConfigurePartnerTextureImporter(string assetPath, PartnerRenderSpec spec)
     {
         var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
         if (importer == null)
@@ -803,13 +1280,42 @@ public static class SbScenePartnerResultBuilder
         importer.spriteImportMode = SpriteImportMode.Single;
         importer.spritePixelsPerUnit = 100f;
         importer.spritePivot = new Vector2(0.5f, 0.5f);
+        importer.spriteBorder = Vector4.zero;
         importer.alphaSource = TextureImporterAlphaSource.FromInput;
         importer.alphaIsTransparency = true;
         importer.mipmapEnabled = false;
+        importer.filterMode = FilterMode.Bilinear;
         importer.isReadable = false;
         importer.textureCompression = TextureImporterCompression.Compressed;
         importer.SetPlatformTextureSettings("Standalone", 2048, TextureImporterFormat.BC7, 50, false);
+        var settings = new TextureImporterSettings();
+        importer.ReadTextureSettings(settings);
+        settings.spriteMeshType = SpriteMeshType.FullRect;
+        settings.spriteExtrude = 1;
+        importer.SetTextureSettings(settings);
         importer.SaveAndReimport();
+        EnsurePartnerSpriteRect(assetPath, spec);
+    }
+
+    private static void EnsurePartnerSpriteRect(string assetPath, PartnerRenderSpec spec)
+    {
+        var sprite = AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
+        if (sprite == null)
+        {
+            throw new InvalidOperationException("Generated PNG did not import as a sprite: " + assetPath);
+        }
+
+        var rect = sprite.rect;
+        if (!Mathf.Approximately(rect.width, spec.OutputSize) || !Mathf.Approximately(rect.height, spec.OutputSize))
+        {
+            throw new InvalidOperationException(string.Format(
+                CultureInfo.InvariantCulture,
+                "Generated PartnerResult sprite must be {0}x{0}, but imported as {1}x{2}: {3}",
+                spec.OutputSize,
+                rect.width,
+                rect.height,
+                assetPath));
+        }
     }
 
     private static void EnsureScriptsCanBuild()
@@ -892,8 +1398,6 @@ public static class SbScenePartnerResultBuilder
     {
         public int SuccessCount { get; set; }
 
-        public int SkippedCount { get; set; }
-
         public List<string> Failures { get; set; } = new List<string>();
     }
 
@@ -912,15 +1416,106 @@ public static class SbScenePartnerResultBuilder
 
     private struct GeneratedPartnerPng
     {
-        public GeneratedPartnerPng(int id, string assetPath)
+        public GeneratedPartnerPng(int id, string assetPath, string bundleNamePrefix)
         {
             Id = id;
             AssetPath = assetPath;
+            BundleNamePrefix = bundleNamePrefix;
         }
 
         public int Id { get; }
 
         public string AssetPath { get; }
+
+        public string BundleNamePrefix { get; }
+    }
+
+    private struct PartnerRenderSpec
+    {
+        public PartnerRenderSpec(
+            string label,
+            string assetNamePrefix,
+            string bundleNamePrefix,
+            int outputSize,
+            int renderScale,
+            float targetHeadWidthRatio,
+            float targetHeadHeightRatio,
+            float targetUpperWidthRatio,
+            float targetUpperHeightRatio,
+            float targetHeadCenterYRatio,
+            float zoomFactor,
+            float safeMargin,
+            bool keepUpperInsideFrame,
+            PartnerRenderMode renderMode)
+        {
+            Label = label;
+            AssetNamePrefix = assetNamePrefix;
+            BundleNamePrefix = bundleNamePrefix;
+            OutputSize = outputSize;
+            RenderScale = renderScale;
+            RenderSize = outputSize * renderScale;
+            TargetHeadWidth = outputSize * targetHeadWidthRatio;
+            TargetHeadHeight = outputSize * targetHeadHeightRatio;
+            TargetUpperWidth = outputSize * targetUpperWidthRatio;
+            TargetUpperHeight = outputSize * targetUpperHeightRatio;
+            TargetHeadCenterY = outputSize * targetHeadCenterYRatio;
+            ZoomFactor = zoomFactor;
+            SafeMargin = safeMargin;
+            KeepUpperInsideFrame = keepUpperInsideFrame;
+            RenderMode = renderMode;
+        }
+
+        public string Label { get; }
+
+        public string AssetNamePrefix { get; }
+
+        public string BundleNamePrefix { get; }
+
+        public int OutputSize { get; }
+
+        public int RenderScale { get; }
+
+        public int RenderSize { get; }
+
+        public float TargetHeadWidth { get; }
+
+        public float TargetHeadHeight { get; }
+
+        public float TargetUpperWidth { get; }
+
+        public float TargetUpperHeight { get; }
+
+        public float TargetHeadCenterY { get; }
+
+        public float ZoomFactor { get; }
+
+        public float SafeMargin { get; }
+
+        public bool KeepUpperInsideFrame { get; }
+
+        public PartnerRenderMode RenderMode { get; }
+    }
+
+    private enum PartnerRenderMode
+    {
+        Portrait = 0,
+        HeadShot = 1,
+    }
+
+    private struct PortraitFrame
+    {
+        public PortraitFrame(Bounds content, Bounds head, Bounds upper)
+        {
+            Content = content;
+            Head = head;
+            Upper = upper;
+        }
+
+        public Bounds Content { get; }
+
+        public Bounds Head { get; }
+
+        public Bounds Upper { get; }
     }
 }
 #endif
