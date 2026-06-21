@@ -55,7 +55,8 @@
 - 生成图片尺寸暂定为 `512x512`。
 - EditorWindow 提供 `Clip Rect JSON` 导入框，用于拖入通用 Clip Rect JSON 并应用到对应 Clip 框。
 - EditorWindow 提供 Clip 框配置保存功能，保存为通用 JSON 预设。
-- 选中 prefab 后，默认生成固定默认 Clip 框；不会再按 prefab 自动加载 JSON。
+- 切换或拖入新的 prefab 时，保留当前 PartnerResult 和 Partner 两套 Clip 框的位置和大小；不会按新 prefab 自动重置为默认框，也不会按 prefab 自动加载 JSON。
+- 窗口首次打开时使用固定默认 Clip 框；用户点击 `Set Default Rect` 时才恢复默认框。
 - 保存 Clip 框配置时，只保存 Clip 框的位置和大小。
 - Clip 框配置保存到 `Assets/Editor/PartnerResultClipConfigs/`。
 - Clip 框配置不再按 prefab 自动命名；保存时弹出保存对话框，由用户输入 JSON 文件名。
@@ -77,7 +78,7 @@
 - 窗口提供 `Center Horizontally` 按钮，将当前 Clip 框水平居中，保留当前垂直位置和大小。
 - `Center Horizontally` 只作用于顶部 `PartnerResult | Partner` 二段切换当前选中的 Clip 框。
 - 窗口提供 `Refresh Preview` 按钮，用于重新渲染当前 prefab 预览。
-- 拖入或选择 prefab 时自动生成一次预览。
+- 拖入或选择 prefab 时自动生成一次预览，并保留当前两套 Clip 框的位置和大小。
 - 拖动或拉伸 Clip 框时，只重绘遮罩和 Clip 框，不重新渲染人物。
 - 只有选择 prefab、点击 `Refresh Preview` 或执行导出时才需要重新渲染人物。
 - 生成成功后弹出对话框，显示 PNG 和 AssetBundle 输出路径。
@@ -181,7 +182,7 @@
 - 新 EditorWindow 复用现有 `SbScenePartnerResultBuilder` 的生成流程公共逻辑，不单独维护另一套导出实现。
 - 输出图片尺寸暂定为 `512x512`。
 - EditorWindow 需要支持通过 `Clip Rect JSON` 导入框加载通用 JSON，并支持保存通用 JSON。
-- 选择 prefab 时，自动生成默认 Clip 框。
+- 选择或拖入 prefab 时，保留当前 Clip 框位置和大小，并自动生成预览。
 - Clip 框配置只保存位置和大小。
 - Clip 框配置目录为 `Assets/Editor/PartnerResultClipConfigs/`。
 - Clip 框配置文件由用户保存时输入名称，不按 prefab 自动命名。
@@ -197,7 +198,7 @@
 - `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
 - `Center Horizontally` 只作用于当前选中的 Clip 框。
 - Partner 头像生成失败时，已成功生成的 PartnerResult 文件和 AssetBundle 保留，不回滚。
-- 选择 prefab 时自动生成预览；点击 `Refresh Preview` 可手动重新生成预览；拖动 Clip 框不重新渲染人物。
+- 选择或拖入 prefab 时保留当前 Clip 框并自动生成预览；点击 `Refresh Preview` 可手动重新生成预览；拖动 Clip 框不重新渲染人物。
 - 生成成功弹窗显示输出路径；失败弹窗显示错误，并在窗口内保留错误信息。
 - 默认 Clip 框采用固定位置和固定尺寸，由用户手动拖动和拉伸。
 - PartnerResult 默认 Clip 框中心为 `(0, 60)`，边长为 `420`。
@@ -213,9 +214,11 @@
 - 已新增 `SbScenePartnerResultClipEditorWindow` EditorWindow。
 - 已新增 `Tools/SbScene/PartnerResult Clip Editor` 菜单入口。
 - 已实现 prefab 选择和拖入校验。
+- 已实现切换或拖入新的 prefab 时保留当前 PartnerResult 和 Partner 两套 Clip 框位置和大小。
 - 已实现 `Navi_Default` 第 0 帧离屏预览。
 - 已实现预览缩放、平移、Clip 框拖动和四角拉伸。
 - 已实现 PartnerResult 和 Partner 两套 Clip 框同屏显示。
+- 已实现窗口底部两个小预览窗口，即时显示 PartnerResult 和 Partner 两个 Clip 框当前选择的画面。
 - 已实现 `PartnerResult | Partner` 二段切换，当前选中的 Clip 框可拖动和拉伸，未选中的 Clip 框只显示。
 - 已实现两个 Clip 框使用不同颜色，并在左上角显示 `PartnerResult` 或 `Partner` 标签。
 - 已实现当前选中 Clip 框水平居中按钮。

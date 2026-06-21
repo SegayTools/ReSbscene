@@ -19,6 +19,8 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
     private const float DefaultPartnerClipSize = 180f;
     private const float MinClipSize = DefaultPartnerResultClipSize * 128f / OutputSize;
     private const float HandleSize = 9f;
+    private const float ClipPreviewStripHeight = 156f;
+    private const float ClipPreviewSize = 128f;
     private static readonly string[] ClipTargetLabels = { "PartnerResult", "Partner" };
     private static readonly Color PartnerResultClipColor = new Color(0.25f, 0.85f, 1f, 1f);
     private static readonly Color PartnerClipColor = new Color(1f, 0.66f, 0.20f, 1f);
@@ -70,6 +72,7 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         DrawPreview(previewArea);
         HandlePrefabDrag(previewArea);
         HandlePreviewInput(previewArea);
+        DrawClipPreviews();
     }
 
     private void DrawHeader()
@@ -171,7 +174,6 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
 
         _prefabAssetPath = assetPath;
-        SetBothDefaultRects();
         ResetView();
         RefreshPreview();
     }
@@ -290,6 +292,73 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         DrawClipMask(_lastImageRect, selectedGuiRect);
         DrawClipRect(WorldToGuiRect(_partnerResultClipRect.Rect, _lastImageRect), ClipTarget.PartnerResult);
         DrawClipRect(WorldToGuiRect(_partnerClipRect.Rect, _lastImageRect), ClipTarget.Partner);
+    }
+
+    private void DrawClipPreviews()
+    {
+        var stripRect = GUILayoutUtility.GetRect(
+            240f,
+            100000f,
+            ClipPreviewStripHeight,
+            ClipPreviewStripHeight,
+            GUILayout.ExpandWidth(true),
+            GUILayout.ExpandHeight(false));
+        EditorGUI.DrawRect(stripRect, new Color(0.10f, 0.10f, 0.10f, 1f));
+
+        var gap = 16f;
+        var totalWidth = ClipPreviewSize * 2f + gap;
+        var startX = stripRect.center.x - totalWidth / 2f;
+        var previewY = stripRect.yMin + 20f;
+        DrawClipPreviewTile(
+            new Rect(startX, previewY, ClipPreviewSize, ClipPreviewSize),
+            ClipTarget.PartnerResult,
+            _partnerResultClipRect);
+        DrawClipPreviewTile(
+            new Rect(startX + ClipPreviewSize + gap, previewY, ClipPreviewSize, ClipPreviewSize),
+            ClipTarget.Partner,
+            _partnerClipRect);
+    }
+
+    private void DrawClipPreviewTile(
+        Rect tileRect,
+        ClipTarget target,
+        SbScenePartnerResultBuilder.PartnerResultClipRect clipRect)
+    {
+        var color = GetClipColor(target);
+        EditorGUI.DrawRect(tileRect, new Color(0.16f, 0.16f, 0.16f, 1f));
+        if (_previewTexture == null || _previewFrameRect.width <= 0f || _previewFrameRect.height <= 0f)
+        {
+            DrawCenteredText(tileRect, "No preview");
+        }
+        else
+        {
+            var uvRect = WorldToTextureUvRect(clipRect.Rect);
+            GUI.DrawTextureWithTexCoords(tileRect, _previewTexture, uvRect, true);
+        }
+
+        DrawBorder(tileRect, color, target == _selectedClipTarget ? 2f : 1f);
+        DrawClipPreviewLabel(tileRect, target, color);
+    }
+
+    private static void DrawClipPreviewLabel(Rect tileRect, ClipTarget target, Color color)
+    {
+        var labelRect = new Rect(tileRect.xMin, tileRect.yMin - 18f, tileRect.width, 16f);
+        var style = new GUIStyle(EditorStyles.miniBoldLabel)
+        {
+            normal = { textColor = color },
+            alignment = TextAnchor.MiddleCenter,
+            clipping = TextClipping.Clip,
+        };
+        GUI.Label(labelRect, ClipTargetLabels[(int)target], style);
+    }
+
+    private Rect WorldToTextureUvRect(Rect worldRect)
+    {
+        var xMin = Mathf.InverseLerp(_previewFrameRect.xMin, _previewFrameRect.xMax, worldRect.xMin);
+        var xMax = Mathf.InverseLerp(_previewFrameRect.xMin, _previewFrameRect.xMax, worldRect.xMax);
+        var yMin = Mathf.InverseLerp(_previewFrameRect.yMin, _previewFrameRect.yMax, worldRect.yMin);
+        var yMax = Mathf.InverseLerp(_previewFrameRect.yMin, _previewFrameRect.yMax, worldRect.yMax);
+        return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
     }
 
     private void DrawCenteredText(Rect rect, string text)
