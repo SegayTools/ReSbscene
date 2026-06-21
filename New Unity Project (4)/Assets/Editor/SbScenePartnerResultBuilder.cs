@@ -14,7 +14,7 @@ public static class SbScenePartnerResultBuilder
 {
     private const string MenuPath = "Tools/SbScene/Build Partner(Result) Bundles";
     private const string PrefabDir = "Assets/AssetBundle/navichara/prefab";
-    private const string PartnerAssetDir = "Assets/AssetBundle/Partner";
+    private const string PartnerAssetDir = "Assets/AssetBundle/partner";
     private const string PartnerBackAssetPath = "Assets/AssetBundle/misc/partner_back.png";
     private const string PartnerFrontAssetPath = "Assets/AssetBundle/misc/partner_front.png";
     private const string OutputRelativePath = "out/AssetBundles";
@@ -43,13 +43,22 @@ public static class SbScenePartnerResultBuilder
 
     private static readonly string[] LowerBodyNameParts =
     {
+        "boot",
         "leg",
         "pants",
         "foot",
         "shoe",
+        "shin",
         "skirt",
+        "sune",
+        "tights",
         "twintail",
         "tail",
+    };
+
+    private static readonly string[] PortraitNonFramingNameParts =
+    {
+        "hair_back",
     };
     private static readonly string[] PartnerHeadShotNameParts =
     {
@@ -160,6 +169,153 @@ public static class SbScenePartnerResultBuilder
         }
     }
 
+    public static PartnerResultGenerationResult GeneratePartnerResultFromClip(string prefabAssetPath, PartnerResultClipRect clipRect)
+    {
+        EnsureScriptsCanBuild();
+        if (!TryGetNavicharaPrefabInfo(prefabAssetPath, out var id, out var error))
+        {
+            throw new InvalidOperationException(error);
+        }
+
+        EnsureAssetFolder(PartnerAssetDir);
+        var prefab = new PartnerPrefab(id, NormalizeAssetPath(prefabAssetPath));
+        var spec = GetPartnerResultSpec();
+        var pngAssetPath = RenderPartnerResultClipPng(prefab, clipRect, spec);
+        AssetDatabase.Refresh();
+        BuildAssetBundles(new[]
+        {
+            new GeneratedPartnerPng(prefab.Id, pngAssetPath, spec.BundleNamePrefix),
+        });
+        AssetDatabase.Refresh();
+
+        return new PartnerResultGenerationResult(
+            prefab.Id,
+            pngAssetPath,
+            NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath, FormatBundleName(spec.BundleNamePrefix, prefab.Id))));
+    }
+
+    public static PartnerResultPreview RenderPartnerResultPreview(string prefabAssetPath, int previewSize)
+    {
+        if (!TryGetNavicharaPrefabInfo(prefabAssetPath, out _, out var error))
+        {
+            throw new InvalidOperationException(error);
+        }
+
+        var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefabAssetPath);
+        if (source == null)
+        {
+            throw new InvalidOperationException("Prefab could not be loaded.");
+        }
+
+        previewSize = Mathf.Max(64, previewSize);
+        var sceneRoot = new GameObject("SbScenePartnerResultPreviewRoot");
+        sceneRoot.hideFlags = HideFlags.HideAndDontSave;
+        var cameraObject = new GameObject("SbScenePartnerResultPreviewCamera");
+        cameraObject.hideFlags = HideFlags.HideAndDontSave;
+        var canvasObject = new GameObject("SbScenePartnerResultPreviewCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        canvasObject.hideFlags = HideFlags.HideAndDontSave;
+        var renderTexture = new RenderTexture(previewSize, previewSize, 24, RenderTextureFormat.ARGB32);
+        var previousActive = RenderTexture.active;
+        Camera camera = null;
+        try
+        {
+            cameraObject.transform.SetParent(sceneRoot.transform, false);
+            camera = cameraObject.AddComponent<Camera>();
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
+            camera.orthographic = true;
+            camera.nearClipPlane = -100f;
+            camera.farClipPlane = 100f;
+            camera.targetTexture = renderTexture;
+
+            canvasObject.transform.SetParent(sceneRoot.transform, false);
+            ConfigureWorldCanvas(canvasObject, camera, previewSize);
+
+            var instance = InstantiateSampledPrefab(source, canvasObject.transform);
+            var frame = CalculatePortraitFrame(instance);
+            if (!frame.HasValue || frame.Value.Content.size.x <= 0f || frame.Value.Content.size.y <= 0f)
+            {
+                throw new InvalidOperationException("No visible UI bounds could be measured.");
+            }
+
+            var content = frame.Value.Content;
+            var frameSize = Mathf.Max(content.size.x, content.size.y);
+            if (float.IsNaN(frameSize) || float.IsInfinity(frameSize) || frameSize <= 0.0001f)
+            {
+                frameSize = OutputSize;
+            }
+
+            frameSize *= 1.12f;
+            var frameCenter = content.center;
+            camera.orthographicSize = frameSize / 2f;
+            camera.transform.position = new Vector3(frameCenter.x, frameCenter.y, -10f);
+            Canvas.ForceUpdateCanvases();
+
+            var previewSpec = new PartnerRenderSpec(
+                "PartnerResultPreview",
+                "UI_PartnerResult",
+                GetPartnerResultSpec().BundleNamePrefix,
+                previewSize,
+                1,
+                1f,
+                1f,
+                1f,
+                1f,
+                0f,
+                1f,
+                0f,
+                false,
+                PartnerRenderMode.Portrait);
+            var texture = new Texture2D(previewSize, previewSize, TextureFormat.RGBA32, false);
+            texture.filterMode = FilterMode.Bilinear;
+            texture.SetPixels32(RenderStraightAlphaPixels(camera, renderTexture, previewSpec));
+            texture.Apply(false, false);
+
+            var frameRect = new Rect(frameCenter.x - frameSize / 2f, frameCenter.y - frameSize / 2f, frameSize, frameSize);
+            return new PartnerResultPreview(texture, frameRect, content);
+        }
+        finally
+        {
+            if (camera != null)
+            {
+                camera.targetTexture = null;
+            }
+
+            RenderTexture.active = previousActive;
+            renderTexture.Release();
+            UnityEngine.Object.DestroyImmediate(renderTexture);
+            UnityEngine.Object.DestroyImmediate(sceneRoot);
+        }
+    }
+
+    public static bool TryGetNavicharaPrefabInfo(string assetPath, out int id, out string error)
+    {
+        id = 0;
+        error = null;
+        if (string.IsNullOrEmpty(assetPath))
+        {
+            error = "Select a prefab.";
+            return false;
+        }
+
+        var normalized = NormalizeAssetPath(assetPath);
+        var normalizedDir = NormalizeAssetPath(PrefabDir).TrimEnd('/') + "/";
+        if (!normalized.StartsWith(normalizedDir, StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Prefab must be under " + PrefabDir + ".";
+            return false;
+        }
+
+        var match = PrefabNamePattern.Match(Path.GetFileName(normalized));
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out id))
+        {
+            error = "Prefab name must match UI_Navichara_{id}.prefab.";
+            return false;
+        }
+
+        return true;
+    }
+
     private static BuildSummary BuildAll()
     {
         EnsureScriptsCanBuild();
@@ -194,28 +350,7 @@ public static class SbScenePartnerResultBuilder
 
         AssetDatabase.Refresh();
 
-        var builds = generatedPngs
-            .Select(item => new AssetBundleBuild
-            {
-                assetBundleName = string.Format(CultureInfo.InvariantCulture, "{0}_{1:D6}.ab", item.BundleNamePrefix, item.Id),
-                assetNames = new[] { item.AssetPath },
-            })
-            .ToArray();
-
-        if (builds.Length > 0)
-        {
-            var outputPath = NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath));
-            Directory.CreateDirectory(outputPath);
-            if (BuildPipeline.BuildAssetBundles(
-                outputPath,
-                builds,
-                BuildAssetBundleOptions.UncompressedAssetBundle,
-                EditorUserBuildSettings.activeBuildTarget) == null)
-            {
-                throw new InvalidOperationException(
-                    "AssetBundle build failed. If the Unity console shows script compiler errors, fix those C# errors first and run this menu again.");
-            }
-        }
+        BuildAssetBundles(generatedPngs);
 
         AssetDatabase.Refresh();
         return new BuildSummary
@@ -250,6 +385,43 @@ public static class SbScenePartnerResultBuilder
 
             yield return new PartnerPrefab(id, ToAssetPath(NormalizeFullPath(filePath), NormalizeFullPath(Application.dataPath)));
         }
+    }
+
+    private static PartnerRenderSpec GetPartnerResultSpec()
+    {
+        return PartnerRenderSpecs[0];
+    }
+
+    private static void BuildAssetBundles(IEnumerable<GeneratedPartnerPng> generatedPngs)
+    {
+        var builds = generatedPngs
+            .Select(item => new AssetBundleBuild
+            {
+                assetBundleName = FormatBundleName(item.BundleNamePrefix, item.Id),
+                assetNames = new[] { item.AssetPath },
+            })
+            .ToArray();
+        if (builds.Length == 0)
+        {
+            return;
+        }
+
+        var outputPath = NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath));
+        Directory.CreateDirectory(outputPath);
+        if (BuildPipeline.BuildAssetBundles(
+            outputPath,
+            builds,
+            BuildAssetBundleOptions.UncompressedAssetBundle,
+            EditorUserBuildSettings.activeBuildTarget) == null)
+        {
+            throw new InvalidOperationException(
+                "AssetBundle build failed. If the Unity console shows script compiler errors, fix those C# errors first and run this menu again.");
+        }
+    }
+
+    private static string FormatBundleName(string bundleNamePrefix, int id)
+    {
+        return string.Format(CultureInfo.InvariantCulture, "{0}_{1:D6}.ab", bundleNamePrefix, id);
     }
 
     private static string RenderPartnerPng(PartnerPrefab prefab, PartnerRenderSpec spec)
@@ -336,15 +508,6 @@ public static class SbScenePartnerResultBuilder
             }
             else
             {
-                var contentFrame = CalculatePortraitFrame(instance);
-                if (!contentFrame.HasValue || contentFrame.Value.Content.size.x <= 0f || contentFrame.Value.Content.size.y <= 0f)
-                {
-                    throw new InvalidOperationException("No visible UI bounds could be measured.");
-                }
-
-                FitToFullFrame(rootRect, contentFrame.Value.Content, spec);
-                Canvas.ForceUpdateCanvases();
-
                 var portraitFrame = CalculatePortraitFrame(instance);
                 if (!portraitFrame.HasValue || portraitFrame.Value.Content.size.x <= 0f || portraitFrame.Value.Content.size.y <= 0f)
                 {
@@ -390,6 +553,119 @@ public static class SbScenePartnerResultBuilder
         AssetDatabase.ImportAsset(pngAssetPath, ImportAssetOptions.ForceUpdate);
         ConfigurePartnerTextureImporter(pngAssetPath, spec);
         return pngAssetPath;
+    }
+
+    private static string RenderPartnerResultClipPng(PartnerPrefab prefab, PartnerResultClipRect clipRect, PartnerRenderSpec spec)
+    {
+        var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefab.AssetPath);
+        if (source == null)
+        {
+            throw new InvalidOperationException("Prefab could not be loaded.");
+        }
+
+        var pngAssetPath = string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}/{1}_{2:D6}.png",
+            PartnerAssetDir,
+            spec.AssetNamePrefix,
+            prefab.Id);
+        var pngAbsolutePath = ToAbsoluteAssetPath(pngAssetPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(pngAbsolutePath) ?? ".");
+
+        var sceneRoot = new GameObject("SbScenePartnerResultClipRenderRoot");
+        sceneRoot.hideFlags = HideFlags.HideAndDontSave;
+        var cameraObject = new GameObject("SbScenePartnerResultClipCamera");
+        cameraObject.hideFlags = HideFlags.HideAndDontSave;
+        var canvasObject = new GameObject("SbScenePartnerResultClipCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        canvasObject.hideFlags = HideFlags.HideAndDontSave;
+        var renderTexture = new RenderTexture(spec.RenderSize, spec.RenderSize, 24, RenderTextureFormat.ARGB32);
+        var previousActive = RenderTexture.active;
+        Camera camera = null;
+        try
+        {
+            cameraObject.transform.SetParent(sceneRoot.transform, false);
+            camera = cameraObject.AddComponent<Camera>();
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
+            camera.orthographic = true;
+            camera.orthographicSize = clipRect.Size / 2f;
+            camera.nearClipPlane = -100f;
+            camera.farClipPlane = 100f;
+            camera.transform.position = new Vector3(clipRect.Center.x, clipRect.Center.y, -10f);
+            camera.targetTexture = renderTexture;
+
+            canvasObject.transform.SetParent(sceneRoot.transform, false);
+            ConfigureWorldCanvas(canvasObject, camera, spec.OutputSize);
+            InstantiateSampledPrefab(source, canvasObject.transform);
+            Canvas.ForceUpdateCanvases();
+
+            var texture = new Texture2D(spec.OutputSize, spec.OutputSize, TextureFormat.RGBA32, false);
+            try
+            {
+                texture.filterMode = FilterMode.Bilinear;
+                texture.SetPixels32(RenderStraightAlphaPixels(camera, renderTexture, spec));
+                texture.Apply(false, false);
+                File.WriteAllBytes(pngAbsolutePath, texture.EncodeToPNG());
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+        }
+        finally
+        {
+            if (camera != null)
+            {
+                camera.targetTexture = null;
+            }
+
+            RenderTexture.active = previousActive;
+            renderTexture.Release();
+            UnityEngine.Object.DestroyImmediate(renderTexture);
+            UnityEngine.Object.DestroyImmediate(sceneRoot);
+        }
+
+        AssetDatabase.ImportAsset(pngAssetPath, ImportAssetOptions.ForceUpdate);
+        ConfigurePartnerTextureImporter(pngAssetPath, spec);
+        return pngAssetPath;
+    }
+
+    private static GameObject InstantiateSampledPrefab(GameObject source, Transform parent)
+    {
+        var instance = (GameObject)PrefabUtility.InstantiatePrefab(source);
+        if (instance == null)
+        {
+            throw new InvalidOperationException("Prefab instance could not be created.");
+        }
+
+        instance.hideFlags = HideFlags.HideAndDontSave;
+        SetHideFlagsRecursively(instance, HideFlags.HideAndDontSave);
+        instance.transform.SetParent(parent, false);
+        instance.SetActive(true);
+        SampleDefaultFrame(instance);
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(instance.GetComponent<RectTransform>());
+        Canvas.ForceUpdateCanvases();
+        return instance;
+    }
+
+    private static void ConfigureWorldCanvas(GameObject canvasObject, Camera camera, int size)
+    {
+        var canvas = canvasObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = camera;
+        canvas.pixelPerfect = false;
+        canvasObject.GetComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+
+        var canvasRect = canvasObject.GetComponent<RectTransform>();
+        canvasRect.anchorMin = new Vector2(0.5f, 0.5f);
+        canvasRect.anchorMax = new Vector2(0.5f, 0.5f);
+        canvasRect.pivot = new Vector2(0.5f, 0.5f);
+        canvasRect.sizeDelta = new Vector2(size, size);
+        canvasRect.anchoredPosition = Vector2.zero;
+        canvasRect.localPosition = Vector3.zero;
+        canvasRect.localRotation = Quaternion.identity;
+        canvasRect.localScale = Vector3.one;
     }
 
     private static void DisableAnimator(GameObject root)
@@ -964,7 +1240,7 @@ public static class SbScenePartnerResultBuilder
             }
 
             var isHead = IsHeadCenterGraphic(graphic.transform);
-            var isUpper = isHead || !IsLowerBodyGraphic(graphic.transform);
+            var isUpper = isHead || IsPortraitFramingGraphic(graphic.transform);
             rect.GetWorldCorners(corners);
             for (var index = 0; index < corners.Length; index++)
             {
@@ -1119,6 +1395,28 @@ public static class SbScenePartnerResultBuilder
         }
 
         return false;
+    }
+
+    private static bool IsPortraitFramingGraphic(Transform transform)
+    {
+        for (var current = transform; current != null; current = current.parent)
+        {
+            var normalized = NormalizeName(current.name);
+            if (IsLowerBodyName(normalized))
+            {
+                return false;
+            }
+
+            for (var index = 0; index < PortraitNonFramingNameParts.Length; index++)
+            {
+                if (normalized.Contains(PortraitNonFramingNameParts[index]))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private static bool IsLowerBodyName(string normalized)
@@ -1392,6 +1690,64 @@ public static class SbScenePartnerResultBuilder
     private static string NormalizeAssetPath(string path)
     {
         return path.Replace('\\', '/');
+    }
+
+    public struct PartnerResultClipRect
+    {
+        public PartnerResultClipRect(float centerX, float centerY, float size)
+        {
+            CenterX = centerX;
+            CenterY = centerY;
+            Size = Mathf.Max(0.0001f, size);
+        }
+
+        public float CenterX { get; }
+
+        public float CenterY { get; }
+
+        public float Size { get; }
+
+        public Vector2 Center
+        {
+            get { return new Vector2(CenterX, CenterY); }
+        }
+
+        public Rect Rect
+        {
+            get { return new Rect(CenterX - Size / 2f, CenterY - Size / 2f, Size, Size); }
+        }
+    }
+
+    public sealed class PartnerResultPreview
+    {
+        public PartnerResultPreview(Texture2D texture, Rect frameRect, Bounds contentBounds)
+        {
+            Texture = texture;
+            FrameRect = frameRect;
+            ContentBounds = contentBounds;
+        }
+
+        public Texture2D Texture { get; }
+
+        public Rect FrameRect { get; }
+
+        public Bounds ContentBounds { get; }
+    }
+
+    public sealed class PartnerResultGenerationResult
+    {
+        public PartnerResultGenerationResult(int id, string pngAssetPath, string assetBundlePath)
+        {
+            Id = id;
+            PngAssetPath = pngAssetPath;
+            AssetBundlePath = assetBundlePath;
+        }
+
+        public int Id { get; }
+
+        public string PngAssetPath { get; }
+
+        public string AssetBundlePath { get; }
     }
 
     private sealed class BuildSummary
