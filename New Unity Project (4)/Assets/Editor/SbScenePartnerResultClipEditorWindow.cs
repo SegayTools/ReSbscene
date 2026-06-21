@@ -13,10 +13,15 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
     private const int PreviewTextureSize = 1024;
     private const float OutputSize = 512f;
     private const float DefaultClipCenterX = 0f;
-    private const float DefaultClipCenterY = 60f;
-    private const float DefaultClipSize = 420f;
-    private const float MinClipSize = DefaultClipSize * 128f / OutputSize;
+    private const float DefaultPartnerResultClipCenterY = 60f;
+    private const float DefaultPartnerResultClipSize = 420f;
+    private const float DefaultPartnerClipCenterY = 120f;
+    private const float DefaultPartnerClipSize = 180f;
+    private const float MinClipSize = DefaultPartnerResultClipSize * 128f / OutputSize;
     private const float HandleSize = 9f;
+    private static readonly string[] ClipTargetLabels = { "PartnerResult", "Partner" };
+    private static readonly Color PartnerResultClipColor = new Color(0.25f, 0.85f, 1f, 1f);
+    private static readonly Color PartnerClipColor = new Color(1f, 0.66f, 0.20f, 1f);
 
     private GameObject _prefab;
     private string _prefabAssetPath;
@@ -25,12 +30,15 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
     private Texture2D _previewTexture;
     private TextAsset _clipRectJson;
     private Rect _previewFrameRect;
-    private SbScenePartnerResultBuilder.PartnerResultClipRect _clipRect = DefaultClipRect();
+    private ClipTarget _selectedClipTarget = ClipTarget.PartnerResult;
+    private SbScenePartnerResultBuilder.PartnerResultClipRect _partnerResultClipRect = DefaultPartnerResultClipRect();
+    private SbScenePartnerResultBuilder.PartnerResultClipRect _partnerClipRect = DefaultPartnerClipRect();
     private float _viewZoom = 1f;
     private Vector2 _viewPan;
     private Rect _lastPreviewArea;
     private Rect _lastImageRect;
     private DragMode _dragMode;
+    private ClipTarget _dragTarget;
     private int _dragCorner = -1;
     private int _hotControl;
     private Vector2 _dragStartMouse;
@@ -81,6 +89,13 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             ImportClipRectJson(selectedJson);
         }
 
+        EditorGUI.BeginChangeCheck();
+        _selectedClipTarget = (ClipTarget)GUILayout.Toolbar((int)_selectedClipTarget, ClipTargetLabels);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Repaint();
+        }
+
         using (new EditorGUILayout.HorizontalScope())
         {
             using (new EditorGUI.DisabledScope(!HasValidPrefab))
@@ -121,10 +136,13 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
                 "Clip Rect",
                 string.Format(
                     CultureInfo.InvariantCulture,
-                    "center=({0:0.###}, {1:0.###}) size={2:0.###}",
-                    _clipRect.CenterX,
-                    _clipRect.CenterY,
-                    _clipRect.Size));
+                    "PartnerResult center=({0:0.###}, {1:0.###}) size={2:0.###} | Partner center=({3:0.###}, {4:0.###}) size={5:0.###}",
+                    _partnerResultClipRect.CenterX,
+                    _partnerResultClipRect.CenterY,
+                    _partnerResultClipRect.Size,
+                    _partnerClipRect.CenterX,
+                    _partnerClipRect.CenterY,
+                    _partnerClipRect.Size));
         }
 
         if (!string.IsNullOrEmpty(_errorMessage))
@@ -153,7 +171,7 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
 
         _prefabAssetPath = assetPath;
-        _clipRect = DefaultClipRect();
+        SetBothDefaultRects();
         ResetView();
         RefreshPreview();
     }
@@ -191,16 +209,14 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
 
         try
         {
-            var result = SbScenePartnerResultBuilder.GeneratePartnerResultFromClip(_prefabAssetPath, _clipRect);
-            _errorMessage = null;
+            var result = SbScenePartnerResultBuilder.GeneratePartnerAndResultFromClips(
+                _prefabAssetPath,
+                _partnerResultClipRect,
+                _partnerClipRect);
+            _errorMessage = result.HasFailure ? BuildGenerationError(result) : null;
             EditorUtility.DisplayDialog(
                 "PartnerResult Clip Editor",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Generated PartnerResult {0:D6}\nPNG: {1}\nAssetBundle: {2}",
-                    result.Id,
-                    result.PngAssetPath,
-                    result.AssetBundlePath),
+                BuildGenerationMessage(result),
                 "OK");
         }
         catch (Exception ex)
@@ -209,6 +225,51 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             Debug.LogException(ex);
             EditorUtility.DisplayDialog("PartnerResult Clip Editor", ex.Message, "OK");
         }
+    }
+
+    private static string BuildGenerationMessage(SbScenePartnerResultBuilder.PartnerClipGenerationSummary result)
+    {
+        var builder = new StringBuilder();
+        builder.AppendFormat(
+            CultureInfo.InvariantCulture,
+            result.HasFailure ? "Finished with failures for {0:D6}" : "Generated resources for {0:D6}",
+            result.Id);
+        builder.AppendLine();
+        AppendGenerationItem(builder, result.PartnerResult);
+        builder.AppendLine();
+        AppendGenerationItem(builder, result.Partner);
+        return builder.ToString();
+    }
+
+    private static string BuildGenerationError(SbScenePartnerResultBuilder.PartnerClipGenerationSummary result)
+    {
+        var builder = new StringBuilder();
+        if (!result.PartnerResult.Success)
+        {
+            builder.Append(result.PartnerResult.Label).Append(": ").AppendLine(result.PartnerResult.ErrorMessage);
+        }
+
+        if (!result.Partner.Success)
+        {
+            builder.Append(result.Partner.Label).Append(": ").AppendLine(result.Partner.ErrorMessage);
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private static void AppendGenerationItem(StringBuilder builder, SbScenePartnerResultBuilder.PartnerClipGenerationItemResult item)
+    {
+        builder.Append(item.Label).Append(": ");
+        if (!item.Success)
+        {
+            builder.Append("Failed").AppendLine();
+            builder.Append("Error: ").Append(item.ErrorMessage);
+            return;
+        }
+
+        builder.Append("Success").AppendLine();
+        builder.Append("PNG: ").AppendLine(item.PngAssetPath);
+        builder.Append("AssetBundle: ").Append(item.AssetBundlePath);
     }
 
     private void DrawPreview(Rect area)
@@ -225,9 +286,10 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         EditorGUI.DrawRect(_lastImageRect, new Color(0.18f, 0.18f, 0.18f, 1f));
         GUI.DrawTexture(_lastImageRect, _previewTexture, ScaleMode.StretchToFill, true);
 
-        var clipGuiRect = WorldToGuiRect(_clipRect.Rect, _lastImageRect);
-        DrawClipMask(_lastImageRect, clipGuiRect);
-        DrawClipRect(clipGuiRect);
+        var selectedGuiRect = WorldToGuiRect(GetSelectedClipRect().Rect, _lastImageRect);
+        DrawClipMask(_lastImageRect, selectedGuiRect);
+        DrawClipRect(WorldToGuiRect(_partnerResultClipRect.Rect, _lastImageRect), ClipTarget.PartnerResult);
+        DrawClipRect(WorldToGuiRect(_partnerClipRect.Rect, _lastImageRect), ClipTarget.Partner);
     }
 
     private void DrawCenteredText(Rect rect, string text)
@@ -264,15 +326,39 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
     }
 
-    private void DrawClipRect(Rect rect)
+    private void DrawClipRect(Rect rect, ClipTarget target)
     {
-        var borderColor = new Color(0.25f, 0.85f, 1f, 1f);
-        DrawBorder(rect, borderColor, 2f);
+        var borderColor = GetClipColor(target);
+        var selected = target == _selectedClipTarget;
+        DrawBorder(rect, borderColor, selected ? 2f : 1f);
+        DrawClipLabel(rect, target, borderColor);
+        if (!selected)
+        {
+            return;
+        }
+
         var handles = GetCornerHandleRects(rect);
         for (var index = 0; index < handles.Length; index++)
         {
             EditorGUI.DrawRect(handles[index], borderColor);
         }
+    }
+
+    private static void DrawClipLabel(Rect rect, ClipTarget target, Color color)
+    {
+        var labelRect = new Rect(rect.xMin + 4f, rect.yMin + 3f, 90f, 16f);
+        var style = new GUIStyle(EditorStyles.miniBoldLabel)
+        {
+            normal = { textColor = color },
+            alignment = TextAnchor.UpperLeft,
+            clipping = TextClipping.Clip,
+        };
+        GUI.Label(labelRect, ClipTargetLabels[(int)target], style);
+    }
+
+    private static Color GetClipColor(ClipTarget target)
+    {
+        return target == ClipTarget.PartnerResult ? PartnerResultClipColor : PartnerClipColor;
     }
 
     private void DrawBorder(Rect rect, Color color, float thickness)
@@ -416,14 +502,15 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             return;
         }
 
-        var clipGuiRect = WorldToGuiRect(_clipRect.Rect, _lastImageRect);
+        var clipGuiRect = WorldToGuiRect(GetSelectedClipRect().Rect, _lastImageRect);
         var corner = HitTestCorner(clipGuiRect, evt.mousePosition);
         if (corner >= 0)
         {
             _dragMode = DragMode.ResizeClip;
+            _dragTarget = _selectedClipTarget;
             _dragCorner = corner;
             _dragStartMouse = evt.mousePosition;
-            _dragStartClip = _clipRect;
+            _dragStartClip = GetSelectedClipRect();
             CaptureMouse();
             evt.Use();
             return;
@@ -432,8 +519,9 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         if (clipGuiRect.Contains(evt.mousePosition))
         {
             _dragMode = DragMode.MoveClip;
+            _dragTarget = _selectedClipTarget;
             _dragStartMouse = evt.mousePosition;
-            _dragStartClip = _clipRect;
+            _dragStartClip = GetSelectedClipRect();
             CaptureMouse();
             evt.Use();
         }
@@ -455,10 +543,10 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             var startWorld = GuiToWorld(_dragStartMouse, _lastImageRect);
             var currentWorld = GuiToWorld(evt.mousePosition, _lastImageRect);
             var delta = currentWorld - startWorld;
-            _clipRect = new SbScenePartnerResultBuilder.PartnerResultClipRect(
+            SetClipRect(_dragTarget, new SbScenePartnerResultBuilder.PartnerResultClipRect(
                 _dragStartClip.CenterX + delta.x,
                 _dragStartClip.CenterY + delta.y,
-                _dragStartClip.Size);
+                _dragStartClip.Size));
         }
         else if (_dragMode == DragMode.ResizeClip)
         {
@@ -477,6 +565,7 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
 
         _dragMode = DragMode.None;
+        _dragTarget = ClipTarget.PartnerResult;
         _dragCorner = -1;
         if (_hotControl != 0)
         {
@@ -539,7 +628,7 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             Mathf.Abs(currentWorld.y - opposite.y),
             MinClipSize);
         var center = opposite + direction * (size / 2f);
-        _clipRect = new SbScenePartnerResultBuilder.PartnerResultClipRect(center.x, center.y, size);
+        SetClipRect(_dragTarget, new SbScenePartnerResultBuilder.PartnerResultClipRect(center.x, center.y, size));
     }
 
     private Rect WorldToGuiRect(Rect worldRect, Rect imageRect)
@@ -580,19 +669,58 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
 
     private void SetDefaultRect()
     {
-        _clipRect = DefaultClipRect();
+        SetBothDefaultRects();
         Repaint();
     }
 
     private void CenterRectHorizontally()
     {
-        _clipRect = new SbScenePartnerResultBuilder.PartnerResultClipRect(0f, _clipRect.CenterY, _clipRect.Size);
+        var clipRect = GetSelectedClipRect();
+        SetClipRect(_selectedClipTarget, new SbScenePartnerResultBuilder.PartnerResultClipRect(0f, clipRect.CenterY, clipRect.Size));
         Repaint();
     }
 
-    private static SbScenePartnerResultBuilder.PartnerResultClipRect DefaultClipRect()
+    private void SetBothDefaultRects()
     {
-        return new SbScenePartnerResultBuilder.PartnerResultClipRect(DefaultClipCenterX, DefaultClipCenterY, DefaultClipSize);
+        _partnerResultClipRect = DefaultPartnerResultClipRect();
+        _partnerClipRect = DefaultPartnerClipRect();
+    }
+
+    private SbScenePartnerResultBuilder.PartnerResultClipRect GetSelectedClipRect()
+    {
+        return GetClipRect(_selectedClipTarget);
+    }
+
+    private SbScenePartnerResultBuilder.PartnerResultClipRect GetClipRect(ClipTarget target)
+    {
+        return target == ClipTarget.PartnerResult ? _partnerResultClipRect : _partnerClipRect;
+    }
+
+    private void SetClipRect(ClipTarget target, SbScenePartnerResultBuilder.PartnerResultClipRect clipRect)
+    {
+        if (target == ClipTarget.PartnerResult)
+        {
+            _partnerResultClipRect = clipRect;
+            return;
+        }
+
+        _partnerClipRect = clipRect;
+    }
+
+    private static SbScenePartnerResultBuilder.PartnerResultClipRect DefaultPartnerResultClipRect()
+    {
+        return new SbScenePartnerResultBuilder.PartnerResultClipRect(
+            DefaultClipCenterX,
+            DefaultPartnerResultClipCenterY,
+            DefaultPartnerResultClipSize);
+    }
+
+    private static SbScenePartnerResultBuilder.PartnerResultClipRect DefaultPartnerClipRect()
+    {
+        return new SbScenePartnerResultBuilder.PartnerResultClipRect(
+            DefaultClipCenterX,
+            DefaultPartnerClipCenterY,
+            DefaultPartnerClipSize);
     }
 
     private void ImportClipRectJson(TextAsset jsonAsset)
@@ -613,7 +741,7 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
 
         try
         {
-            ApplyClipRectConfig(JsonUtility.FromJson<ClipRectConfig>(_clipRectJson.text));
+            ApplyClipRectJson(_clipRectJson.text);
             _errorMessage = null;
         }
         catch (Exception ex)
@@ -646,11 +774,10 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             return;
         }
 
-        var config = new ClipRectConfig
+        var config = new ClipRectPreset
         {
-            centerX = _clipRect.CenterX,
-            centerY = _clipRect.CenterY,
-            size = Mathf.Max(_clipRect.Size, MinClipSize),
+            partnerResult = CreateClipRectConfig(_partnerResultClipRect),
+            partner = CreateClipRectConfig(_partnerClipRect),
         };
         var absolutePath = ToAbsoluteAssetPath(configAssetPath);
         Directory.CreateDirectory(Path.GetDirectoryName(absolutePath) ?? ".");
@@ -661,14 +788,61 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         _errorMessage = null;
     }
 
-    private void ApplyClipRectConfig(ClipRectConfig config)
+    private void ApplyClipRectJson(string json)
     {
-        if (config == null || config.size <= 0f)
+        ApplyClipRectPreset(JsonUtility.FromJson<ClipRectPreset>(json), JsonUtility.FromJson<ClipRectConfig>(json));
+    }
+
+    private void ApplyClipRectPreset(ClipRectPreset preset, ClipRectConfig legacyConfig)
+    {
+        if (preset == null)
         {
             throw new InvalidOperationException("Clip Rect JSON must contain centerX, centerY, and size.");
         }
 
-        _clipRect = new SbScenePartnerResultBuilder.PartnerResultClipRect(
+        var applied = false;
+        if (IsValidClipRectConfig(preset.partnerResult))
+        {
+            _partnerResultClipRect = ToClipRect(preset.partnerResult);
+            applied = true;
+        }
+
+        if (IsValidClipRectConfig(preset.partner))
+        {
+            _partnerClipRect = ToClipRect(preset.partner);
+            applied = true;
+        }
+
+        if (!applied && IsValidClipRectConfig(legacyConfig))
+        {
+            _partnerResultClipRect = ToClipRect(legacyConfig);
+            applied = true;
+        }
+
+        if (!applied)
+        {
+            throw new InvalidOperationException("Clip Rect JSON must contain partnerResult/partner or root centerX, centerY, and size.");
+        }
+    }
+
+    private static ClipRectConfig CreateClipRectConfig(SbScenePartnerResultBuilder.PartnerResultClipRect clipRect)
+    {
+        return new ClipRectConfig
+        {
+            centerX = clipRect.CenterX,
+            centerY = clipRect.CenterY,
+            size = Mathf.Max(clipRect.Size, MinClipSize),
+        };
+    }
+
+    private static bool IsValidClipRectConfig(ClipRectConfig config)
+    {
+        return config != null && config.size > 0f;
+    }
+
+    private static SbScenePartnerResultBuilder.PartnerResultClipRect ToClipRect(ClipRectConfig config)
+    {
+        return new SbScenePartnerResultBuilder.PartnerResultClipRect(
             config.centerX,
             config.centerY,
             Mathf.Max(config.size, MinClipSize));
@@ -734,8 +908,21 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         ResizeClip = 3,
     }
 
+    private enum ClipTarget
+    {
+        PartnerResult = 0,
+        Partner = 1,
+    }
+
     [Serializable]
-    private sealed class ClipRectConfig
+    private sealed class ClipRectPreset
+    {
+        public ClipRectConfig partnerResult;
+        public ClipRectConfig partner;
+    }
+
+    [Serializable]
+    private class ClipRectConfig
     {
         public float centerX;
         public float centerY;

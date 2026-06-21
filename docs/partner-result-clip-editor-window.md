@@ -6,8 +6,24 @@
 
 ## 已确认需求
 
-- 当前版本只生成 PartnerResult，不生成 128x128 Partner 头像。
-- 后续可能扩展为同时支持 Partner 头像生成。
+- 当前已实现 PartnerResult Clip 编辑与生成。
+- 计划扩展为同时支持 128x128 Partner 头像剪切与生成。
+- PartnerResult Clip 控件和 Partner 头像 Clip 控件需要在同一个 EditorWindow 内共存。
+- Partner 头像提供独立的 128x128 目标 Clip 控件。
+- Partner 头像默认 Clip 框中心为 prefab 本地坐标 `(0, 120)`。
+- Partner 头像默认 Clip 框边长为 prefab 本地坐标 `180`。
+- Partner 头像生成沿用现有 128x128 头像边框合成规则。
+- Partner 头像 Clip 只决定人物图截取范围，生成时仍先叠 `partner_back.png`，再叠人物图，最后叠 `partner_front.png`。
+- Partner 头像导出时，Clip 框内人物层直接映射到 `128x128` 画面，不再二次自动居中或自动缩放。
+- 生成 Partner 头像时如果找不到 `partner_back.png` 或 `partner_front.png`，Partner 头像生成失败，不输出缺少边框的半成品。
+- Partner 头像输出 PNG 为 `Assets/AssetBundle/partner/UI_Partner_{id:000000}.png`。
+- Partner 头像 AssetBundle 为 `partner/ui_partner_{id:000000}.ab`。
+- PartnerResult Clip 和 Partner Clip 在同一张全身预览上同时显示。
+- 两个 Clip 框使用不同颜色区分。
+- Clip 框左上角使用对应颜色的小字显示 `PartnerResult` 或 `Partner`。
+- 当前选中的 Clip 框响应拖动和拉伸，未选中的 Clip 框只显示。
+- 窗口顶部提供 `PartnerResult | Partner` 二段切换，用于选择当前可编辑的 Clip 框。
+- `Generate Selected` 的语义是生成当前 prefab 的全部输出，包括 PartnerResult 和 Partner。
 - 保留现有 `Tools/SbScene/Build Partner(Result) Bundles` 菜单。
 - 新窗口作为单个 prefab 的手动精修生成工具，不替代现有批量生成流程。
 - EditorWindow 菜单入口为 `Tools/SbScene/PartnerResult Clip Editor`。
@@ -37,29 +53,43 @@
 - AssetBundle 命名规则复用现有 PartnerResult 生成流程，使用 `partner/ui_partnerresult_{id:000000}.ab`。
 - 实现时复用并适当拆分现有 `SbScenePartnerResultBuilder` 的公共生成逻辑。
 - 生成图片尺寸暂定为 `512x512`。
-- EditorWindow 提供 `Clip Rect JSON` 导入框，用于拖入通用 Clip Rect JSON 并应用到当前 Clip 框。
+- EditorWindow 提供 `Clip Rect JSON` 导入框，用于拖入通用 Clip Rect JSON 并应用到对应 Clip 框。
 - EditorWindow 提供 Clip 框配置保存功能，保存为通用 JSON 预设。
 - 选中 prefab 后，默认生成固定默认 Clip 框；不会再按 prefab 自动加载 JSON。
 - 保存 Clip 框配置时，只保存 Clip 框的位置和大小。
 - Clip 框配置保存到 `Assets/Editor/PartnerResultClipConfigs/`。
 - Clip 框配置不再按 prefab 自动命名；保存时弹出保存对话框，由用户输入 JSON 文件名。
 - Clip 框配置保存为 prefab 本地坐标空间中的中心点和边长。
+- PartnerResult Clip 和 Partner 头像 Clip 共用同一个 JSON 预设文件。
+- 同一个 JSON 文件内同时保存 PartnerResult 和 Partner 两套 Clip Rect，使用不同字段区分。
+- JSON 字段结构使用 `partnerResult` 和 `partner` 两组嵌套对象。
+- 保存 Clip Rect JSON 时始终写入 `partnerResult` 和 `partner` 两套 Rect。
+- 如果用户只调整其中一个 Clip 框，另一个 Clip 框也保存当前值或默认值。
+- 导入新版 Clip Rect JSON 时，同时应用 `partnerResult` 和 `partner` 两组字段。
+- 如果新版 Clip Rect JSON 只包含其中一组字段，则只更新存在的那一组 Clip 框，另一组保持当前值。
+- 旧版根级 `centerX`、`centerY`、`size` JSON 兼容为只导入到 PartnerResult Clip。
 - 预览显示 `Navi_Default` 第 0 帧。
 - 导出 PartnerResult 图片时也使用 `Navi_Default` 第 0 帧。
-- 窗口提供 `Generate Selected` 按钮，用当前 prefab 和当前 Clip 框生成 PartnerResult PNG 与 AssetBundle。
-- 点击 `Generate Selected` 时直接生成 PartnerResult PNG 与 AssetBundle，不自动保存 Clip Rect JSON。
-- 窗口提供 `Save Rect` 按钮，保存当前 Clip 框的位置和大小。
-- 窗口提供 `Set Default Rect` 按钮，将当前 prefab 的 Clip 框重置为默认框。
+- 窗口提供 `Generate Selected` 按钮，用当前 prefab 和当前两套 Clip 框生成 PartnerResult 与 Partner PNG/AssetBundle。
+- 点击 `Generate Selected` 时直接生成 PartnerResult 与 Partner PNG/AssetBundle，不自动保存 Clip Rect JSON。
+- 窗口提供 `Save Rect` 按钮，保存 PartnerResult 和 Partner 两套 Clip 框的位置和大小。
+- 窗口提供 `Set Default Rect` 按钮，将 PartnerResult 和 Partner 两套 Clip 框都重置为默认框。
 - 窗口提供 `Center Horizontally` 按钮，将当前 Clip 框水平居中，保留当前垂直位置和大小。
+- `Center Horizontally` 只作用于顶部 `PartnerResult | Partner` 二段切换当前选中的 Clip 框。
 - 窗口提供 `Refresh Preview` 按钮，用于重新渲染当前 prefab 预览。
 - 拖入或选择 prefab 时自动生成一次预览。
 - 拖动或拉伸 Clip 框时，只重绘遮罩和 Clip 框，不重新渲染人物。
 - 只有选择 prefab、点击 `Refresh Preview` 或执行导出时才需要重新渲染人物。
 - 生成成功后弹出对话框，显示 PNG 和 AssetBundle 输出路径。
 - 生成失败时弹出错误对话框，并在窗口内保留错误信息。
-- 默认 Clip 框使用固定位置和固定尺寸，不根据人物自动计算。
-- 默认 Clip 框中心为 prefab 本地坐标 `(0, 60)`。
-- 默认 Clip 框边长为 prefab 本地坐标 `420`。
+- `Generate Selected` 的完成弹窗需要分别列出 PartnerResult 和 Partner 的生成结果；如果 Partner 因头像边框资源缺失失败，需要明确显示 PartnerResult 是否已经生成成功。
+- 如果 Partner 头像生成失败但 PartnerResult 已经生成成功，保留已生成的 PartnerResult PNG 和 AssetBundle，不做回滚删除。
+- PartnerResult 默认 Clip 框使用固定位置和固定尺寸，不根据人物自动计算。
+- PartnerResult 默认 Clip 框中心为 prefab 本地坐标 `(0, 60)`。
+- PartnerResult 默认 Clip 框边长为 prefab 本地坐标 `420`。
+- Partner 头像默认 Clip 框使用固定位置和固定尺寸，不根据人物自动计算。
+- Partner 头像默认 Clip 框中心为 prefab 本地坐标 `(0, 120)`。
+- Partner 头像默认 Clip 框边长为 prefab 本地坐标 `180`。
 - 用户通过拖动和拉伸 Clip 框手动调整截取范围。
 - 预览区域支持缩放视图。
 - 预览区域支持平移视图。
@@ -81,8 +111,14 @@
 
 ## 推荐默认方案
 
-- 当前实现聚焦 PartnerResult，暂不混入 Partner 头像边框和头部截图逻辑。
-- 代码结构预留后续增加 Partner 头像生成的扩展点。
+- 当前实现已聚焦 PartnerResult；下一步扩展 Partner 头像 Clip 编辑与生成。
+- 代码结构应继续复用现有公共预览、Clip JSON、Sprite 导入和 AssetBundle 生成逻辑。
+- Partner 头像导出复用现有头像边框合成逻辑，保持游戏加载表现一致。
+- Partner 头像 Clip 框应直接决定最终 `128x128` 人物层取景，不做二次自动居中或自动缩放。
+- 缺少 `partner_back.png` 或 `partner_front.png` 时应让 Partner 头像生成失败，避免输出缺边框资源。
+- 两套 Clip 框建议同屏显示，使用颜色和左上角文字标签区分。
+- 使用 `PartnerResult | Partner` 二段切换明确当前编辑对象。
+- `Generate Selected` 建议保持按钮名不变，但行为扩展为对当前 prefab 生成全部已支持输出。
 - 旧批量菜单继续保留；新窗口只增加手动 Clip 调整能力。
 - Clip 框固定 1:1，因为 PartnerResult 目标图片是 512x512。
 - 预览区域显示全身，Clip 框默认覆盖上半身。
@@ -97,13 +133,19 @@
 - 将现有 PartnerResult PNG 导出、Sprite 导入、AssetBundle 构建逻辑拆成可复用方法，供 EditorWindow 调用。
 - Clip 框配置保存到 `Assets/Editor/PartnerResultClipConfigs/` 下的通用 JSON 文件，便于复用到不同 prefab。
 - Clip 框配置建议保存字段为 `centerX`、`centerY`、`size`，坐标基准为 prefab 本地坐标空间。
+- JSON 预设扩展为同时包含 `partnerResult` 和 `partner` 两组字段；导入时新版字段应用到对应 Clip 框，旧版根级字段仅应用到 PartnerResult。
+- `Save Rect` 始终保存完整的两套 Rect，保证一个 JSON 能恢复 PartnerResult 和 Partner 两个框。
 - 预览和导出都采样 `Navi_Default` 第 0 帧，保持所见即所得。
 - 窗口按钮使用 `Generate Selected`、`Save Rect`、`Set Default Rect`、`Center Horizontally`。
+- `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
+- `Center Horizontally` 只水平居中当前选中的 Clip 框，避免影响另一套已调整好的 Clip 框。
 - 预览刷新按钮使用 `Refresh Preview`。
 - `Save Rect` 弹出保存对话框，由用户输入 JSON 文件名。
 - 生成完成后使用弹窗反馈结果。
+- PartnerResult 和 Partner 按独立资源结果汇报；其中一个失败时不回滚另一个已经成功生成的输出。
 - 拖框过程中不重新渲染人物，只刷新 EditorWindow 绘制层，保证交互流畅。
-- 默认 Clip 框使用固定中心点 `(0, 60)` 和边长 `420`，避免隐式自动推断；实现后可按实际预览微调默认值。
+- PartnerResult 默认 Clip 框使用固定中心点 `(0, 60)` 和边长 `420`，避免隐式自动推断；实现后可按实际预览微调默认值。
+- Partner 头像默认 Clip 框使用固定中心点 `(0, 120)` 和边长 `180`，避免隐式自动推断；实现后可按实际预览微调默认值。
 - 预览使用鼠标滚轮缩放，右键拖动平移，中键拖动也支持平移。
 - Clip 框使用四角缩放、内部拖动移动，减少边框误操作。
 - Clip 框应设置最小尺寸限制，避免生成空图或极端放大图。
@@ -112,7 +154,18 @@
 
 ## 已确认决策
 
-- 当前版本暂不考虑 Partner 头像生成，但后续可能一起实现。
+- 下一步扩展 Partner 头像生成。
+- Partner 头像 Clip 与 PartnerResult Clip 在同一个窗口内共存。
+- Partner 头像目标输出尺寸为 `128x128`。
+- Partner 头像默认 Clip 框中心为 `(0, 120)`，边长为 `180`。
+- Partner 头像生成需要沿用 `partner_back.png`、人物图、`partner_front.png` 的合成顺序。
+- Partner 头像导出时，Clip 框内人物层直接映射到 `128x128`，不再二次自动居中或自动缩放。
+- 缺少 `partner_back.png` 或 `partner_front.png` 时，Partner 头像不生成半成品；弹窗分别显示 PartnerResult 和 Partner 的生成结果。
+- Partner 头像输出文件名和 AssetBundle 命名复用现有 `UI_Partner_{id:000000}.png` 与 `partner/ui_partner_{id:000000}.ab`。
+- PartnerResult 和 Partner 两个 Clip 框同屏显示，用颜色区分，并在左上角显示同色标签文字。
+- 当前选中的 Clip 框可编辑，未选中的 Clip 框只显示。
+- 顶部使用 `PartnerResult | Partner` 二段切换选择当前编辑的 Clip 框。
+- `Generate Selected` 生成当前 prefab 的 PartnerResult 和 Partner 两类资源。
 - 保留现有 `Build Partner(Result) Bundles` 菜单。
 - 菜单入口为 `Tools/SbScene/PartnerResult Clip Editor`。
 - 导出背景保持透明。
@@ -133,13 +186,22 @@
 - Clip 框配置目录为 `Assets/Editor/PartnerResultClipConfigs/`。
 - Clip 框配置文件由用户保存时输入名称，不按 prefab 自动命名。
 - Clip 框配置坐标基准为 prefab 本地坐标空间，保存中心点和边长。
+- PartnerResult 和 Partner 头像 Clip Rect 共用一个 JSON 文件，字段分开保存。
+- JSON 字段采用 `{ partnerResult: { centerX, centerY, size }, partner: { centerX, centerY, size } }`。
+- 保存 JSON 时始终写入 `partnerResult` 和 `partner` 两组字段。
+- 导入新版 JSON 时，`partnerResult` 和 `partner` 字段分别应用到对应 Clip 框；缺失字段不重置对应 Clip 框。
+- 兼容旧版 `{ centerX, centerY, size }` JSON，导入时只设置 PartnerResult Clip。
 - 预览和导出使用 `Navi_Default` 第 0 帧。
 - 需要的按钮为 `Generate Selected`、`Save Rect`、`Set Default Rect`、`Center Horizontally`、`Refresh Preview`。
 - `Generate Selected` 不自动保存 Clip 框配置。
+- `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
+- `Center Horizontally` 只作用于当前选中的 Clip 框。
+- Partner 头像生成失败时，已成功生成的 PartnerResult 文件和 AssetBundle 保留，不回滚。
 - 选择 prefab 时自动生成预览；点击 `Refresh Preview` 可手动重新生成预览；拖动 Clip 框不重新渲染人物。
 - 生成成功弹窗显示输出路径；失败弹窗显示错误，并在窗口内保留错误信息。
 - 默认 Clip 框采用固定位置和固定尺寸，由用户手动拖动和拉伸。
-- 默认 Clip 框中心为 `(0, 60)`，边长为 `420`。
+- PartnerResult 默认 Clip 框中心为 `(0, 60)`，边长为 `420`。
+- Partner 头像默认 Clip 框中心为 `(0, 120)`，边长为 `180`。
 - 预览视图支持缩放和平移，且不改变 Clip 框保存坐标。
 - 鼠标左键编辑 Clip 框，滚轮缩放预览，右键拖动平移预览，中键拖动也可平移预览。
 - Clip 框四角拉伸，框内拖动移动，不做边中点拉伸。
@@ -153,7 +215,17 @@
 - 已实现 prefab 选择和拖入校验。
 - 已实现 `Navi_Default` 第 0 帧离屏预览。
 - 已实现预览缩放、平移、Clip 框拖动和四角拉伸。
-- 已实现当前 Clip 框水平居中按钮。
+- 已实现 PartnerResult 和 Partner 两套 Clip 框同屏显示。
+- 已实现 `PartnerResult | Partner` 二段切换，当前选中的 Clip 框可拖动和拉伸，未选中的 Clip 框只显示。
+- 已实现两个 Clip 框使用不同颜色，并在左上角显示 `PartnerResult` 或 `Partner` 标签。
+- 已实现当前选中 Clip 框水平居中按钮。
+- 已实现 `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
 - 已实现通用 Clip 框 JSON 保存和拖入导入。
-- 已实现 `Generate Selected` 生成 PartnerResult PNG 和对应 AssetBundle。
+- 已实现新版 JSON 同时保存 `partnerResult` 和 `partner` 两组 Rect。
+- 已实现导入新版 JSON 时分别应用 `partnerResult` 和 `partner` 字段，缺失字段不重置对应 Clip 框。
+- 已实现兼容旧版根级 `{ centerX, centerY, size }` JSON，只导入到 PartnerResult Clip。
+- 已实现 `Generate Selected` 生成 PartnerResult 和 Partner 两类 PNG 与对应 AssetBundle。
+- 已实现 Partner 头像 Clip 直接映射到 `128x128` 人物层，并按 `partner_back.png`、人物图、`partner_front.png` 合成。
+- 已实现生成弹窗分别显示 PartnerResult 和 Partner 的生成结果。
+- 已实现 Partner 失败时保留已成功生成的 PartnerResult 输出。
 - 已保留现有 `Build Partner(Result) Bundles` 菜单。

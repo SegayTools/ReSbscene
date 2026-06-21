@@ -180,7 +180,7 @@ public static class SbScenePartnerResultBuilder
         EnsureAssetFolder(PartnerAssetDir);
         var prefab = new PartnerPrefab(id, NormalizeAssetPath(prefabAssetPath));
         var spec = GetPartnerResultSpec();
-        var pngAssetPath = RenderPartnerResultClipPng(prefab, clipRect, spec);
+        var pngAssetPath = RenderPartnerClipPng(prefab, clipRect, spec);
         AssetDatabase.Refresh();
         BuildAssetBundles(new[]
         {
@@ -192,6 +192,33 @@ public static class SbScenePartnerResultBuilder
             prefab.Id,
             pngAssetPath,
             NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath, FormatBundleName(spec.BundleNamePrefix, prefab.Id))));
+    }
+
+    public static PartnerClipGenerationSummary GeneratePartnerAndResultFromClips(
+        string prefabAssetPath,
+        PartnerResultClipRect partnerResultClipRect,
+        PartnerResultClipRect partnerClipRect)
+    {
+        EnsureScriptsCanBuild();
+        if (!TryGetNavicharaPrefabInfo(prefabAssetPath, out var id, out var error))
+        {
+            throw new InvalidOperationException(error);
+        }
+
+        EnsureAssetFolder(PartnerAssetDir);
+        var prefab = new PartnerPrefab(id, NormalizeAssetPath(prefabAssetPath));
+        var generatedPngs = new List<GeneratedPartnerPng>();
+        var partnerResult = GenerateClipResource(prefab, partnerResultClipRect, GetPartnerResultSpec(), generatedPngs);
+        var partner = GenerateClipResource(prefab, partnerClipRect, GetPartnerSpec(), generatedPngs);
+
+        AssetDatabase.Refresh();
+        if (generatedPngs.Count > 0)
+        {
+            BuildAssetBundles(generatedPngs);
+            AssetDatabase.Refresh();
+        }
+
+        return new PartnerClipGenerationSummary(prefab.Id, partnerResult, partner);
     }
 
     public static PartnerResultPreview RenderPartnerResultPreview(string prefabAssetPath, int previewSize)
@@ -392,6 +419,33 @@ public static class SbScenePartnerResultBuilder
         return PartnerRenderSpecs[0];
     }
 
+    private static PartnerRenderSpec GetPartnerSpec()
+    {
+        return PartnerRenderSpecs[1];
+    }
+
+    private static PartnerClipGenerationItemResult GenerateClipResource(
+        PartnerPrefab prefab,
+        PartnerResultClipRect clipRect,
+        PartnerRenderSpec spec,
+        List<GeneratedPartnerPng> generatedPngs)
+    {
+        try
+        {
+            var pngAssetPath = RenderPartnerClipPng(prefab, clipRect, spec);
+            generatedPngs.Add(new GeneratedPartnerPng(prefab.Id, pngAssetPath, spec.BundleNamePrefix));
+            return PartnerClipGenerationItemResult.CreateSuccess(
+                spec.Label,
+                prefab.Id,
+                pngAssetPath,
+                NormalizeFullPath(Path.Combine(ProjectRoot, OutputRelativePath, FormatBundleName(spec.BundleNamePrefix, prefab.Id))));
+        }
+        catch (Exception ex)
+        {
+            return PartnerClipGenerationItemResult.CreateFailure(spec.Label, prefab.Id, ex.Message);
+        }
+    }
+
     private static void BuildAssetBundles(IEnumerable<GeneratedPartnerPng> generatedPngs)
     {
         var builds = generatedPngs
@@ -555,7 +609,7 @@ public static class SbScenePartnerResultBuilder
         return pngAssetPath;
     }
 
-    private static string RenderPartnerResultClipPng(PartnerPrefab prefab, PartnerResultClipRect clipRect, PartnerRenderSpec spec)
+    private static string RenderPartnerClipPng(PartnerPrefab prefab, PartnerResultClipRect clipRect, PartnerRenderSpec spec)
     {
         var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefab.AssetPath);
         if (source == null)
@@ -572,11 +626,11 @@ public static class SbScenePartnerResultBuilder
         var pngAbsolutePath = ToAbsoluteAssetPath(pngAssetPath);
         Directory.CreateDirectory(Path.GetDirectoryName(pngAbsolutePath) ?? ".");
 
-        var sceneRoot = new GameObject("SbScenePartnerResultClipRenderRoot");
+        var sceneRoot = new GameObject("SbScene" + spec.Label + "ClipRenderRoot");
         sceneRoot.hideFlags = HideFlags.HideAndDontSave;
-        var cameraObject = new GameObject("SbScenePartnerResultClipCamera");
+        var cameraObject = new GameObject("SbScene" + spec.Label + "ClipCamera");
         cameraObject.hideFlags = HideFlags.HideAndDontSave;
-        var canvasObject = new GameObject("SbScenePartnerResultClipCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        var canvasObject = new GameObject("SbScene" + spec.Label + "ClipCanvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasObject.hideFlags = HideFlags.HideAndDontSave;
         var renderTexture = new RenderTexture(spec.RenderSize, spec.RenderSize, 24, RenderTextureFormat.ARGB32);
         var previousActive = RenderTexture.active;
@@ -595,7 +649,7 @@ public static class SbScenePartnerResultBuilder
             camera.targetTexture = renderTexture;
 
             canvasObject.transform.SetParent(sceneRoot.transform, false);
-            ConfigureWorldCanvas(canvasObject, camera, spec.OutputSize);
+            ConfigureWorldCanvas(canvasObject, camera, OutputSize);
             InstantiateSampledPrefab(source, canvasObject.transform);
             Canvas.ForceUpdateCanvases();
 
@@ -603,7 +657,13 @@ public static class SbScenePartnerResultBuilder
             try
             {
                 texture.filterMode = FilterMode.Bilinear;
-                texture.SetPixels32(RenderStraightAlphaPixels(camera, renderTexture, spec));
+                var pixels = RenderStraightAlphaPixels(camera, renderTexture, spec);
+                if (spec.RenderMode == PartnerRenderMode.HeadShot)
+                {
+                    pixels = CompositePartnerFramePixels(pixels, spec);
+                }
+
+                texture.SetPixels32(pixels);
                 texture.Apply(false, false);
                 File.WriteAllBytes(pngAbsolutePath, texture.EncodeToPNG());
             }
@@ -1608,7 +1668,8 @@ public static class SbScenePartnerResultBuilder
         {
             throw new InvalidOperationException(string.Format(
                 CultureInfo.InvariantCulture,
-                "Generated PartnerResult sprite must be {0}x{0}, but imported as {1}x{2}: {3}",
+                "Generated {0} sprite must be {1}x{1}, but imported as {2}x{3}: {4}",
+                spec.Label,
                 spec.OutputSize,
                 rect.width,
                 rect.height,
@@ -1748,6 +1809,75 @@ public static class SbScenePartnerResultBuilder
         public string PngAssetPath { get; }
 
         public string AssetBundlePath { get; }
+    }
+
+    public sealed class PartnerClipGenerationSummary
+    {
+        public PartnerClipGenerationSummary(
+            int id,
+            PartnerClipGenerationItemResult partnerResult,
+            PartnerClipGenerationItemResult partner)
+        {
+            Id = id;
+            PartnerResult = partnerResult;
+            Partner = partner;
+        }
+
+        public int Id { get; }
+
+        public PartnerClipGenerationItemResult PartnerResult { get; }
+
+        public PartnerClipGenerationItemResult Partner { get; }
+
+        public bool HasFailure
+        {
+            get { return !PartnerResult.Success || !Partner.Success; }
+        }
+    }
+
+    public sealed class PartnerClipGenerationItemResult
+    {
+        private PartnerClipGenerationItemResult(
+            string label,
+            int id,
+            bool success,
+            string pngAssetPath,
+            string assetBundlePath,
+            string errorMessage)
+        {
+            Label = label;
+            Id = id;
+            Success = success;
+            PngAssetPath = pngAssetPath;
+            AssetBundlePath = assetBundlePath;
+            ErrorMessage = errorMessage;
+        }
+
+        public string Label { get; }
+
+        public int Id { get; }
+
+        public bool Success { get; }
+
+        public string PngAssetPath { get; }
+
+        public string AssetBundlePath { get; }
+
+        public string ErrorMessage { get; }
+
+        public static PartnerClipGenerationItemResult CreateSuccess(
+            string label,
+            int id,
+            string pngAssetPath,
+            string assetBundlePath)
+        {
+            return new PartnerClipGenerationItemResult(label, id, true, pngAssetPath, assetBundlePath, null);
+        }
+
+        public static PartnerClipGenerationItemResult CreateFailure(string label, int id, string errorMessage)
+        {
+            return new PartnerClipGenerationItemResult(label, id, false, null, null, errorMessage);
+        }
     }
 
     private sealed class BuildSummary
