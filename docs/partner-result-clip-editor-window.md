@@ -23,16 +23,18 @@
 - Clip 框左上角使用对应颜色的小字显示 `PartnerResult` 或 `Partner`。
 - 当前选中的 Clip 框响应拖动和拉伸，未选中的 Clip 框只显示。
 - 窗口顶部提供 `PartnerResult | Partner` 二段切换，用于选择当前可编辑的 Clip 框。
-- `Generate Selected` 的语义是生成当前 prefab 的全部输出，包括 PartnerResult 和 Partner。
+- `Generate Selected` 的语义是生成当前选中批次内 prefab 的全部输出，包括 PartnerResult 和 Partner。
 - 保留现有 `Tools/SbScene/Build Partner(Result) Bundles` 菜单。
-- 新窗口作为单个 prefab 的手动精修生成工具，不替代现有批量生成流程。
+- 新窗口作为手动精修生成工具，支持单个 prefab 选择，也支持一次拖入多个 prefab 组成临时批次，不替代现有批量生成流程。
 - EditorWindow 菜单入口为 `Tools/SbScene/PartnerResult Clip Editor`。
-- 提供 prefab 选中器。
+- 提供 prefab 选中器，用于选择单个预览/生成 prefab。
+- 提供显式的 `Batch Prefab Drop Zone`，用于一次拖入多个 prefab 组成当前批次。
 - prefab 选中器只接受 `Assets/AssetBundle/navichara/prefab/UI_Navichara_*.prefab`。
 - 从 prefab 文件名中的 `UI_Navichara_{id}` 提取生成用 id。
 - 非法 prefab 拖入或选择时，在窗口内显示错误提示，不执行生成。
-- 支持将 prefab 拖入 Editor 窗口。
-- 拖入 prefab 后，窗口显示整个 GameObject 人物。
+- 支持将一个或多个 prefab 拖入 Editor 窗口的批次 Drop Zone 或预览区域；每次拖入都会用本次合法 prefab 批次替换当前批次。
+- 拖入多个 prefab 时过滤非法 prefab，合法 prefab 按 Navichara id 升序排序并去重；如果没有合法 prefab，则清空当前批次并显示错误。
+- 拖入 prefab 后，窗口以批次内第一个 prefab 作为预览来源，并显示整个 GameObject 人物。
 - 预览区域需要显示整个人物，便于人工选择截取范围。
 - 预览和导出使用离屏渲染，不向当前 Scene 或 Hierarchy 留下临时对象。
 - EditorWindow 内部可以创建隐藏 Canvas、Camera 和 prefab 临时实例。
@@ -69,21 +71,22 @@
 - 导入新版 Clip Rect JSON 时，同时应用 `partnerResult` 和 `partner` 两组字段。
 - 如果新版 Clip Rect JSON 只包含其中一组字段，则只更新存在的那一组 Clip 框，另一组保持当前值。
 - 旧版根级 `centerX`、`centerY`、`size` JSON 兼容为只导入到 PartnerResult Clip。
-- 预览显示 `Navi_Default` 第 0 帧。
-- 导出 PartnerResult 图片时也使用 `Navi_Default` 第 0 帧。
-- 窗口提供 `Generate Selected` 按钮，用当前 prefab 和当前两套 Clip 框生成 PartnerResult 与 Partner PNG/AssetBundle。
+- 预览显示 prefab 直接放入 Scene 时的静态状态。
+- 导出 PartnerResult 图片时也使用 prefab 静态状态。
+- 窗口提供 `Generate Selected` 按钮，用当前两套 Clip 框为当前批次内所有 prefab 生成 PartnerResult 与 Partner PNG/AssetBundle。
 - 点击 `Generate Selected` 时直接生成 PartnerResult 与 Partner PNG/AssetBundle，不自动保存 Clip Rect JSON。
 - 窗口提供 `Save Rect` 按钮，保存 PartnerResult 和 Partner 两套 Clip 框的位置和大小。
 - 窗口提供 `Set Default Rect` 按钮，将 PartnerResult 和 Partner 两套 Clip 框都重置为默认框。
 - 窗口提供 `Center Horizontally` 按钮，将当前 Clip 框水平居中，保留当前垂直位置和大小。
 - `Center Horizontally` 只作用于顶部 `PartnerResult | Partner` 二段切换当前选中的 Clip 框。
-- 窗口提供 `Refresh Preview` 按钮，用于重新渲染当前 prefab 预览。
-- 拖入或选择 prefab 时自动生成一次预览，并保留当前两套 Clip 框的位置和大小。
+- 窗口提供 `Refresh Preview` 按钮，用于重新渲染当前批次第一个 prefab 的预览。
+- 拖入或选择 prefab 时自动生成一次预览，并保留当前两套 Clip 框的位置和大小；多 prefab 批次只显示第一个 prefab 的主预览和底部两个 Clip 小预览，Drop Zone 显示批次数量和 ID 摘要。
 - 拖动或拉伸 Clip 框时，只重绘遮罩和 Clip 框，不重新渲染人物。
-- 只有选择 prefab、点击 `Refresh Preview` 或执行导出时才需要重新渲染人物。
+- 只有选择 prefab、拖入新批次、点击 `Refresh Preview` 或执行导出时才需要重新渲染人物；预览刷新只针对批次内第一个 prefab。
 - 生成成功后弹出对话框，显示 PNG 和 AssetBundle 输出路径。
 - 生成失败时弹出错误对话框，并在窗口内保留错误信息。
-- `Generate Selected` 的完成弹窗需要分别列出 PartnerResult 和 Partner 的生成结果；如果 Partner 因头像边框资源缺失失败，需要明确显示 PartnerResult 是否已经生成成功。
+- `Generate Selected` 按 Navichara id 升序遍历当前批次；单个 prefab 失败不终止后续 prefab。
+- `Generate Selected` 的完成弹窗需要按 prefab 分别列出 PartnerResult 和 Partner 的生成结果；如果 Partner 因头像边框资源缺失失败，需要明确显示 PartnerResult 是否已经生成成功。
 - 如果 Partner 头像生成失败但 PartnerResult 已经生成成功，保留已生成的 PartnerResult PNG 和 AssetBundle，不做回滚删除。
 - PartnerResult 默认 Clip 框使用固定位置和固定尺寸，不根据人物自动计算。
 - PartnerResult 默认 Clip 框中心为 prefab 本地坐标 `(0, 60)`。
@@ -119,7 +122,7 @@
 - 缺少 `partner_back.png` 或 `partner_front.png` 时应让 Partner 头像生成失败，避免输出缺边框资源。
 - 两套 Clip 框建议同屏显示，使用颜色和左上角文字标签区分。
 - 使用 `PartnerResult | Partner` 二段切换明确当前编辑对象。
-- `Generate Selected` 建议保持按钮名不变，但行为扩展为对当前 prefab 生成全部已支持输出。
+- `Generate Selected` 建议保持按钮名不变，但行为扩展为对当前批次内所有 prefab 生成全部已支持输出。
 - 旧批量菜单继续保留；新窗口只增加手动 Clip 调整能力。
 - Clip 框固定 1:1，因为 PartnerResult 目标图片是 512x512。
 - 预览区域显示全身，Clip 框默认覆盖上半身。
@@ -136,13 +139,15 @@
 - Clip 框配置建议保存字段为 `centerX`、`centerY`、`size`，坐标基准为 prefab 本地坐标空间。
 - JSON 预设扩展为同时包含 `partnerResult` 和 `partner` 两组字段；导入时新版字段应用到对应 Clip 框，旧版根级字段仅应用到 PartnerResult。
 - `Save Rect` 始终保存完整的两套 Rect，保证一个 JSON 能恢复 PartnerResult 和 Partner 两个框。
-- 预览和导出都采样 `Navi_Default` 第 0 帧，保持所见即所得。
+- 预览和导出都使用 prefab 静态状态，保持与编辑器 Scene 中直接放置 prefab 的外观一致。
+- 一次拖入多个合法 prefab 到 `Batch Prefab Drop Zone` 或预览区域时替换当前批次，按 Navichara id 升序排序并去重；窗口主预览和底部 Clip 小预览只使用批次内第一个 prefab。
 - 窗口按钮使用 `Generate Selected`、`Save Rect`、`Set Default Rect`、`Center Horizontally`。
 - `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
 - `Center Horizontally` 只水平居中当前选中的 Clip 框，避免影响另一套已调整好的 Clip 框。
 - 预览刷新按钮使用 `Refresh Preview`。
 - `Save Rect` 弹出保存对话框，由用户输入 JSON 文件名。
 - 生成完成后使用弹窗反馈结果。
+- 批量生成时逐个 prefab 执行，单个 prefab 失败后继续后续项，最终弹窗汇总每个 prefab 的 PartnerResult 与 Partner 结果。
 - PartnerResult 和 Partner 按独立资源结果汇报；其中一个失败时不回滚另一个已经成功生成的输出。
 - 拖框过程中不重新渲染人物，只刷新 EditorWindow 绘制层，保证交互流畅。
 - PartnerResult 默认 Clip 框使用固定中心点 `(0, 60)` 和边长 `420`，避免隐式自动推断；实现后可按实际预览微调默认值。
@@ -166,7 +171,7 @@
 - PartnerResult 和 Partner 两个 Clip 框同屏显示，用颜色区分，并在左上角显示同色标签文字。
 - 当前选中的 Clip 框可编辑，未选中的 Clip 框只显示。
 - 顶部使用 `PartnerResult | Partner` 二段切换选择当前编辑的 Clip 框。
-- `Generate Selected` 生成当前 prefab 的 PartnerResult 和 Partner 两类资源。
+- `Generate Selected` 生成当前选中批次内所有 prefab 的 PartnerResult 和 Partner 两类资源。
 - 保留现有 `Build Partner(Result) Bundles` 菜单。
 - 菜单入口为 `Tools/SbScene/PartnerResult Clip Editor`。
 - 导出背景保持透明。
@@ -182,7 +187,9 @@
 - 新 EditorWindow 复用现有 `SbScenePartnerResultBuilder` 的生成流程公共逻辑，不单独维护另一套导出实现。
 - 输出图片尺寸暂定为 `512x512`。
 - EditorWindow 需要支持通过 `Clip Rect JSON` 导入框加载通用 JSON，并支持保存通用 JSON。
-- 选择或拖入 prefab 时，保留当前 Clip 框位置和大小，并自动生成预览。
+- 选择单个 prefab 或拖入 prefab 批次时，保留当前 Clip 框位置和大小，并自动生成批次内第一个 prefab 的预览。
+- 拖入多个 prefab 时替换当前批次，过滤非法 prefab，合法项按 Navichara id 升序排序并去重；没有合法项时清空当前批次并显示错误。
+- 顶部 `Batch Prefab Drop Zone` 显示当前批次数量、部分 ID 摘要和当前预览 ID，避免多 prefab 批次只在 ObjectField 中表现为单个 prefab。
 - Clip 框配置只保存位置和大小。
 - Clip 框配置目录为 `Assets/Editor/PartnerResultClipConfigs/`。
 - Clip 框配置文件由用户保存时输入名称，不按 prefab 自动命名。
@@ -192,14 +199,15 @@
 - 保存 JSON 时始终写入 `partnerResult` 和 `partner` 两组字段。
 - 导入新版 JSON 时，`partnerResult` 和 `partner` 字段分别应用到对应 Clip 框；缺失字段不重置对应 Clip 框。
 - 兼容旧版 `{ centerX, centerY, size }` JSON，导入时只设置 PartnerResult Clip。
-- 预览和导出使用 `Navi_Default` 第 0 帧。
+- 预览和导出使用 prefab 静态状态。
 - 需要的按钮为 `Generate Selected`、`Save Rect`、`Set Default Rect`、`Center Horizontally`、`Refresh Preview`。
 - `Generate Selected` 不自动保存 Clip 框配置。
 - `Set Default Rect` 同时重置 PartnerResult 和 Partner 两套 Clip 框。
 - `Center Horizontally` 只作用于当前选中的 Clip 框。
 - Partner 头像生成失败时，已成功生成的 PartnerResult 文件和 AssetBundle 保留，不回滚。
-- 选择或拖入 prefab 时保留当前 Clip 框并自动生成预览；点击 `Refresh Preview` 可手动重新生成预览；拖动 Clip 框不重新渲染人物。
-- 生成成功弹窗显示输出路径；失败弹窗显示错误，并在窗口内保留错误信息。
+- 选择或拖入 prefab 时保留当前 Clip 框并自动生成批次内第一个 prefab 的预览；点击 `Refresh Preview` 可手动重新生成第一个 prefab 的预览；拖动 Clip 框不重新渲染人物。
+- 批量生成按 Navichara id 升序执行，单个 prefab 失败后继续后续项。
+- 生成成功弹窗显示输出路径；失败弹窗按 prefab 汇总错误，并在窗口内保留错误信息。
 - 默认 Clip 框采用固定位置和固定尺寸，由用户手动拖动和拉伸。
 - PartnerResult 默认 Clip 框中心为 `(0, 60)`，边长为 `420`。
 - Partner 头像默认 Clip 框中心为 `(0, 120)`，边长为 `180`。
@@ -213,9 +221,11 @@
 
 - 已新增 `SbScenePartnerResultClipEditorWindow` EditorWindow。
 - 已新增 `Tools/SbScene/PartnerResult Clip Editor` 菜单入口。
-- 已实现 prefab 选择和拖入校验。
-- 已实现切换或拖入新的 prefab 时保留当前 PartnerResult 和 Partner 两套 Clip 框位置和大小。
-- 已实现 `Navi_Default` 第 0 帧离屏预览。
+- 已新增顶部 `Batch Prefab Drop Zone`，用于显式拖入多个 prefab 并显示批次数量与 ID 摘要。
+- 已实现 prefab 选择和多 prefab 拖入校验。
+- 已实现选择单个 prefab 或拖入新的 prefab 批次时保留当前 PartnerResult 和 Partner 两套 Clip 框位置和大小。
+- 已实现拖入批次替换当前批次、合法项按 id 升序排序并去重、无合法项时报错。
+- 已实现批次内第一个 prefab 的静态状态离屏预览。
 - 已实现预览缩放、平移、Clip 框拖动和四角拉伸。
 - 已实现 PartnerResult 和 Partner 两套 Clip 框同屏显示。
 - 已实现窗口底部两个小预览窗口，即时显示 PartnerResult 和 Partner 两个 Clip 框当前选择的画面。
@@ -227,8 +237,9 @@
 - 已实现新版 JSON 同时保存 `partnerResult` 和 `partner` 两组 Rect。
 - 已实现导入新版 JSON 时分别应用 `partnerResult` 和 `partner` 字段，缺失字段不重置对应 Clip 框。
 - 已实现兼容旧版根级 `{ centerX, centerY, size }` JSON，只导入到 PartnerResult Clip。
-- 已实现 `Generate Selected` 生成 PartnerResult 和 Partner 两类 PNG 与对应 AssetBundle。
+- 已实现 `Generate Selected` 对当前批次逐个生成 PartnerResult 和 Partner 两类 PNG 与对应 AssetBundle。
 - 已实现 Partner 头像 Clip 直接映射到 `128x128` 人物层，并按 `partner_back.png`、人物图、`partner_front.png` 合成。
-- 已实现生成弹窗分别显示 PartnerResult 和 Partner 的生成结果。
+- 已实现生成弹窗按 prefab 分别显示 PartnerResult 和 Partner 的生成结果。
+- 已实现批量生成时单个 prefab 失败后继续后续项，并在窗口内保留失败摘要。
 - 已实现 Partner 失败时保留已成功生成的 PartnerResult 输出。
 - 已保留现有 `Build Partner(Result) Bundles` 菜单。

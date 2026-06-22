@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -21,13 +22,12 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
     private const float HandleSize = 9f;
     private const float ClipPreviewStripHeight = 156f;
     private const float ClipPreviewSize = 128f;
+    private const int MaxDisplayedBatchIds = 8;
     private static readonly string[] ClipTargetLabels = { "PartnerResult", "Partner" };
     private static readonly Color PartnerResultClipColor = new Color(0.25f, 0.85f, 1f, 1f);
     private static readonly Color PartnerClipColor = new Color(1f, 0.66f, 0.20f, 1f);
 
-    private GameObject _prefab;
-    private string _prefabAssetPath;
-    private int _prefabId;
+    private readonly List<SelectedPrefab> _selectedPrefabs = new List<SelectedPrefab>();
     private string _errorMessage;
     private Texture2D _previewTexture;
     private TextAsset _clipRectJson;
@@ -79,11 +79,13 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
     {
         EditorGUILayout.Space();
         EditorGUI.BeginChangeCheck();
-        var selected = (GameObject)EditorGUILayout.ObjectField("Prefab", _prefab, typeof(GameObject), false);
+        var selected = (GameObject)EditorGUILayout.ObjectField("Prefab", PreviewPrefabObject, typeof(GameObject), false);
         if (EditorGUI.EndChangeCheck())
         {
             SelectPrefab(selected);
         }
+
+        DrawPrefabBatchDropZone();
 
         EditorGUI.BeginChangeCheck();
         var selectedJson = (TextAsset)EditorGUILayout.ObjectField("Clip Rect JSON", _clipRectJson, typeof(TextAsset), false);
@@ -132,9 +134,15 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
 
         if (HasValidPrefab)
         {
+            var previewPrefab = PreviewPrefab;
             EditorGUILayout.LabelField(
                 "Selected",
-                string.Format(CultureInfo.InvariantCulture, "{0}  ID {1:D6}", _prefabAssetPath, _prefabId));
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0} prefab(s), preview {1}  ID {2:D6}",
+                    _selectedPrefabs.Count,
+                    previewPrefab.AssetPath,
+                    previewPrefab.Id));
             EditorGUILayout.LabelField(
                 "Clip Rect",
                 string.Format(
@@ -154,26 +162,95 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
     }
 
+    private void DrawPrefabBatchDropZone()
+    {
+        var dropRect = GUILayoutUtility.GetRect(
+            240f,
+            100000f,
+            42f,
+            42f,
+            GUILayout.ExpandWidth(true),
+            GUILayout.ExpandHeight(false));
+        var isDragOver = dropRect.Contains(Event.current.mousePosition)
+            && (Event.current.type == EventType.DragUpdated || Event.current.type == EventType.DragPerform);
+        EditorGUI.DrawRect(dropRect, isDragOver ? new Color(0.20f, 0.26f, 0.32f, 1f) : new Color(0.16f, 0.16f, 0.16f, 1f));
+        DrawBorder(dropRect, isDragOver ? new Color(0.45f, 0.72f, 1f, 1f) : new Color(0.32f, 0.32f, 0.32f, 1f), 1f);
+
+        var style = new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            clipping = TextClipping.Clip,
+            wordWrap = false,
+        };
+        GUI.Label(dropRect, BuildBatchDropZoneText(), style);
+        HandlePrefabDrag(dropRect);
+    }
+
+    private string BuildBatchDropZoneText()
+    {
+        if (!HasValidPrefab)
+        {
+            return "Batch Prefab Drop Zone: drop one or more UI_Navichara prefabs";
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendFormat(CultureInfo.InvariantCulture, "Batch: {0} prefab(s)", _selectedPrefabs.Count);
+        builder.Append(" | IDs ");
+        for (var index = 0; index < _selectedPrefabs.Count && index < MaxDisplayedBatchIds; index++)
+        {
+            if (index > 0)
+            {
+                builder.Append(", ");
+            }
+
+            builder.AppendFormat(CultureInfo.InvariantCulture, "{0:D6}", _selectedPrefabs[index].Id);
+        }
+
+        if (_selectedPrefabs.Count > MaxDisplayedBatchIds)
+        {
+            builder.Append(", ...");
+        }
+
+        builder.AppendFormat(CultureInfo.InvariantCulture, " | Preview {0:D6}", PreviewPrefab.Id);
+        return builder.ToString();
+    }
+
     private void SelectPrefab(GameObject prefab)
     {
-        _prefab = prefab;
-        _prefabAssetPath = null;
-        _prefabId = 0;
         _errorMessage = null;
         ClearPreviewTexture();
-        if (_prefab == null)
+        _selectedPrefabs.Clear();
+        if (prefab == null)
         {
+            Repaint();
             return;
         }
 
-        var assetPath = AssetDatabase.GetAssetPath(_prefab);
-        if (!SbScenePartnerResultBuilder.TryGetNavicharaPrefabInfo(assetPath, out _prefabId, out var error))
+        if (!TryCreateSelectedPrefab(prefab, out var selectedPrefab, out var error))
         {
             _errorMessage = error;
+            Repaint();
             return;
         }
 
-        _prefabAssetPath = assetPath;
+        _selectedPrefabs.Add(selectedPrefab);
+        ResetView();
+        RefreshPreview();
+    }
+
+    private void SelectPrefabs(List<SelectedPrefab> prefabs)
+    {
+        _errorMessage = null;
+        ClearPreviewTexture();
+        _selectedPrefabs.Clear();
+        if (prefabs == null || prefabs.Count == 0)
+        {
+            _errorMessage = "Drop at least one valid UI_Navichara prefab.";
+            Repaint();
+            return;
+        }
+
+        _selectedPrefabs.AddRange(prefabs);
         ResetView();
         RefreshPreview();
     }
@@ -185,10 +262,11 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             return;
         }
 
+        var previewPrefab = PreviewPrefab;
         ClearPreviewTexture();
         try
         {
-            var preview = SbScenePartnerResultBuilder.RenderPartnerResultPreview(_prefabAssetPath, PreviewTextureSize);
+            var preview = SbScenePartnerResultBuilder.RenderPartnerResultPreview(previewPrefab.AssetPath, PreviewTextureSize);
             _previewTexture = preview.Texture;
             _previewFrameRect = preview.FrameRect;
             _errorMessage = null;
@@ -209,54 +287,118 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             return;
         }
 
-        try
+        var results = new List<PrefabGenerationResult>();
+        var selectedPrefabs = new List<SelectedPrefab>(_selectedPrefabs);
+        selectedPrefabs.Sort(CompareSelectedPrefabs);
+        foreach (var selectedPrefab in selectedPrefabs)
         {
-            var result = SbScenePartnerResultBuilder.GeneratePartnerAndResultFromClips(
-                _prefabAssetPath,
-                _partnerResultClipRect,
-                _partnerClipRect);
-            _errorMessage = result.HasFailure ? BuildGenerationError(result) : null;
-            EditorUtility.DisplayDialog(
-                "PartnerResult Clip Editor",
-                BuildGenerationMessage(result),
-                "OK");
+            try
+            {
+                var result = SbScenePartnerResultBuilder.GeneratePartnerAndResultFromClips(
+                    selectedPrefab.AssetPath,
+                    _partnerResultClipRect,
+                    _partnerClipRect);
+                results.Add(PrefabGenerationResult.CreateSummary(selectedPrefab, result));
+            }
+            catch (Exception ex)
+            {
+                results.Add(PrefabGenerationResult.CreateFailure(selectedPrefab, ex.Message));
+                Debug.LogException(ex);
+            }
         }
-        catch (Exception ex)
-        {
-            _errorMessage = ex.Message;
-            Debug.LogException(ex);
-            EditorUtility.DisplayDialog("PartnerResult Clip Editor", ex.Message, "OK");
-        }
+
+        _errorMessage = HasGenerationFailure(results) ? BuildGenerationError(results) : null;
+        EditorUtility.DisplayDialog(
+            "PartnerResult Clip Editor",
+            BuildGenerationMessage(results),
+            "OK");
     }
 
-    private static string BuildGenerationMessage(SbScenePartnerResultBuilder.PartnerClipGenerationSummary result)
+    private static string BuildGenerationMessage(List<PrefabGenerationResult> results)
     {
         var builder = new StringBuilder();
-        builder.AppendFormat(
-            CultureInfo.InvariantCulture,
-            result.HasFailure ? "Finished with failures for {0:D6}" : "Generated resources for {0:D6}",
-            result.Id);
-        builder.AppendLine();
-        AppendGenerationItem(builder, result.PartnerResult);
-        builder.AppendLine();
-        AppendGenerationItem(builder, result.Partner);
+        var failedCount = CountGenerationFailures(results);
+        if (failedCount > 0)
+        {
+            builder.AppendFormat(
+                CultureInfo.InvariantCulture,
+                "Finished batch with failures: {0}/{1} prefab(s) succeeded.",
+                results.Count - failedCount,
+                results.Count);
+        }
+        else
+        {
+            builder.AppendFormat(
+                CultureInfo.InvariantCulture,
+                "Generated resources for {0} prefab(s).",
+                results.Count);
+        }
+
+        foreach (var result in results)
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            AppendPrefabGenerationResult(builder, result);
+        }
+
         return builder.ToString();
     }
 
-    private static string BuildGenerationError(SbScenePartnerResultBuilder.PartnerClipGenerationSummary result)
+    private static string BuildGenerationError(List<PrefabGenerationResult> results)
     {
         var builder = new StringBuilder();
-        if (!result.PartnerResult.Success)
+        foreach (var result in results)
         {
-            builder.Append(result.PartnerResult.Label).Append(": ").AppendLine(result.PartnerResult.ErrorMessage);
-        }
+            if (result.ExceptionMessage != null)
+            {
+                builder.AppendFormat(CultureInfo.InvariantCulture, "{0:D6}: {1}", result.Prefab.Id, result.ExceptionMessage);
+                builder.AppendLine();
+                continue;
+            }
 
-        if (!result.Partner.Success)
-        {
-            builder.Append(result.Partner.Label).Append(": ").AppendLine(result.Partner.ErrorMessage);
+            if (!result.Summary.PartnerResult.Success)
+            {
+                builder.AppendFormat(
+                    CultureInfo.InvariantCulture,
+                    "{0:D6} {1}: {2}",
+                    result.Prefab.Id,
+                    result.Summary.PartnerResult.Label,
+                    result.Summary.PartnerResult.ErrorMessage);
+                builder.AppendLine();
+            }
+
+            if (!result.Summary.Partner.Success)
+            {
+                builder.AppendFormat(
+                    CultureInfo.InvariantCulture,
+                    "{0:D6} {1}: {2}",
+                    result.Prefab.Id,
+                    result.Summary.Partner.Label,
+                    result.Summary.Partner.ErrorMessage);
+                builder.AppendLine();
+            }
         }
 
         return builder.ToString().TrimEnd();
+    }
+
+    private static void AppendPrefabGenerationResult(StringBuilder builder, PrefabGenerationResult result)
+    {
+        builder.AppendFormat(
+            CultureInfo.InvariantCulture,
+            "[{0:D6}] {1}",
+            result.Prefab.Id,
+            result.Prefab.AssetPath);
+        builder.AppendLine();
+        if (result.ExceptionMessage != null)
+        {
+            builder.Append("Failed: ").Append(result.ExceptionMessage);
+            return;
+        }
+
+        AppendGenerationItem(builder, result.Summary.PartnerResult);
+        builder.AppendLine();
+        AppendGenerationItem(builder, result.Summary.Partner);
     }
 
     private static void AppendGenerationItem(StringBuilder builder, SbScenePartnerResultBuilder.PartnerClipGenerationItemResult item)
@@ -467,10 +609,17 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
             return;
         }
 
-        var draggedPrefab = FindDraggedPrefab();
-        if (draggedPrefab == null)
+        var draggedPrefabs = FindDraggedPrefabs(out _);
+        if (draggedPrefabs.Count == 0)
         {
             DragAndDrop.visualMode = DragAndDropVisualMode.Rejected;
+            if (evt.type == EventType.DragPerform)
+            {
+                DragAndDrop.AcceptDrag();
+                SelectPrefabs(draggedPrefabs);
+                evt.Use();
+            }
+
             return;
         }
 
@@ -478,29 +627,46 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         if (evt.type == EventType.DragPerform)
         {
             DragAndDrop.AcceptDrag();
-            SelectPrefab(draggedPrefab);
+            SelectPrefabs(FindDraggedPrefabs(out _));
         }
 
         evt.Use();
     }
 
-    private GameObject FindDraggedPrefab()
+    private List<SelectedPrefab> FindDraggedPrefabs(out int invalidCount)
     {
+        invalidCount = 0;
+        var candidates = new List<SelectedPrefab>();
         foreach (var draggedObject in DragAndDrop.objectReferences)
         {
             var gameObject = draggedObject as GameObject;
             if (gameObject == null)
             {
+                invalidCount++;
                 continue;
             }
 
-            if (SbScenePartnerResultBuilder.TryGetNavicharaPrefabInfo(AssetDatabase.GetAssetPath(gameObject), out _, out _))
+            if (TryCreateSelectedPrefab(gameObject, out var selectedPrefab, out _))
             {
-                return gameObject;
+                candidates.Add(selectedPrefab);
+                continue;
+            }
+
+            invalidCount++;
+        }
+
+        candidates.Sort(CompareSelectedPrefabs);
+        var selectedPrefabs = new List<SelectedPrefab>();
+        var seenIds = new HashSet<int>();
+        foreach (var candidate in candidates)
+        {
+            if (seenIds.Add(candidate.Id))
+            {
+                selectedPrefabs.Add(candidate);
             }
         }
 
-        return null;
+        return selectedPrefabs;
     }
 
     private void HandlePreviewInput(Rect area)
@@ -829,8 +995,9 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         }
 
         EnsureAssetFolder(ConfigDir);
+        var previewPrefab = PreviewPrefab;
         var defaultName = HasValidPrefab
-            ? string.Format(CultureInfo.InvariantCulture, "PartnerResultClipRect_{0:D6}", _prefabId)
+            ? string.Format(CultureInfo.InvariantCulture, "PartnerResultClipRect_{0:D6}", previewPrefab.Id)
             : "PartnerResultClipRect";
         var configAssetPath = EditorUtility.SaveFilePanelInProject(
             "Save Clip Rect JSON",
@@ -959,14 +1126,74 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         return Path.GetFullPath(Path.Combine(ProjectRoot, assetPath)).TrimEnd('/', '\\');
     }
 
+    private static bool TryCreateSelectedPrefab(GameObject prefab, out SelectedPrefab selectedPrefab, out string error)
+    {
+        selectedPrefab = null;
+        error = null;
+        if (prefab == null)
+        {
+            error = "Select a prefab.";
+            return false;
+        }
+
+        var assetPath = AssetDatabase.GetAssetPath(prefab);
+        if (!SbScenePartnerResultBuilder.TryGetNavicharaPrefabInfo(assetPath, out var id, out error))
+        {
+            return false;
+        }
+
+        selectedPrefab = new SelectedPrefab(prefab, assetPath, id);
+        return true;
+    }
+
+    private static int CompareSelectedPrefabs(SelectedPrefab left, SelectedPrefab right)
+    {
+        var idComparison = left.Id.CompareTo(right.Id);
+        if (idComparison != 0)
+        {
+            return idComparison;
+        }
+
+        return string.Compare(left.AssetPath, right.AssetPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasGenerationFailure(List<PrefabGenerationResult> results)
+    {
+        return CountGenerationFailures(results) > 0;
+    }
+
+    private static int CountGenerationFailures(List<PrefabGenerationResult> results)
+    {
+        var count = 0;
+        foreach (var result in results)
+        {
+            if (result.HasFailure)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
     private static string ProjectRoot
     {
         get { return Path.GetFullPath(Path.GetDirectoryName(Application.dataPath) ?? ".").TrimEnd('/', '\\'); }
     }
 
+    private SelectedPrefab PreviewPrefab
+    {
+        get { return _selectedPrefabs.Count > 0 ? _selectedPrefabs[0] : null; }
+    }
+
+    private GameObject PreviewPrefabObject
+    {
+        get { return PreviewPrefab != null ? PreviewPrefab.Prefab : null; }
+    }
+
     private bool HasValidPrefab
     {
-        get { return _prefab != null && !string.IsNullOrEmpty(_prefabAssetPath) && _prefabId > 0; }
+        get { return PreviewPrefab != null; }
     }
 
     private enum DragMode
@@ -996,6 +1223,58 @@ public sealed class SbScenePartnerResultClipEditorWindow : EditorWindow
         public float centerX;
         public float centerY;
         public float size;
+    }
+
+    private sealed class SelectedPrefab
+    {
+        public SelectedPrefab(GameObject prefab, string assetPath, int id)
+        {
+            Prefab = prefab;
+            AssetPath = assetPath;
+            Id = id;
+        }
+
+        public GameObject Prefab { get; }
+
+        public string AssetPath { get; }
+
+        public int Id { get; }
+    }
+
+    private sealed class PrefabGenerationResult
+    {
+        private PrefabGenerationResult(
+            SelectedPrefab prefab,
+            SbScenePartnerResultBuilder.PartnerClipGenerationSummary summary,
+            string exceptionMessage)
+        {
+            Prefab = prefab;
+            Summary = summary;
+            ExceptionMessage = exceptionMessage;
+        }
+
+        public SelectedPrefab Prefab { get; }
+
+        public SbScenePartnerResultBuilder.PartnerClipGenerationSummary Summary { get; }
+
+        public string ExceptionMessage { get; }
+
+        public bool HasFailure
+        {
+            get { return ExceptionMessage != null || Summary.HasFailure; }
+        }
+
+        public static PrefabGenerationResult CreateSummary(
+            SelectedPrefab prefab,
+            SbScenePartnerResultBuilder.PartnerClipGenerationSummary summary)
+        {
+            return new PrefabGenerationResult(prefab, summary, null);
+        }
+
+        public static PrefabGenerationResult CreateFailure(SelectedPrefab prefab, string exceptionMessage)
+        {
+            return new PrefabGenerationResult(prefab, null, exceptionMessage);
+        }
     }
 }
 #endif

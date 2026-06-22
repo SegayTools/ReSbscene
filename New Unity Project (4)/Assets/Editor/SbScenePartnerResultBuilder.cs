@@ -258,7 +258,7 @@ public static class SbScenePartnerResultBuilder
             canvasObject.transform.SetParent(sceneRoot.transform, false);
             ConfigureWorldCanvas(canvasObject, camera, previewSize);
 
-            var instance = InstantiateSampledPrefab(source, canvasObject.transform);
+            var instance = InstantiatePreviewPrefab(source, canvasObject.transform);
             var frame = CalculatePortraitFrame(instance);
             if (!frame.HasValue || frame.Value.Content.size.x <= 0f || frame.Value.Content.size.y <= 0f)
             {
@@ -534,20 +534,7 @@ public static class SbScenePartnerResultBuilder
             canvasRect.localRotation = Quaternion.identity;
             canvasRect.localScale = Vector3.one;
 
-            var instance = (GameObject)PrefabUtility.InstantiatePrefab(source);
-            if (instance == null)
-            {
-                throw new InvalidOperationException("Prefab instance could not be created.");
-            }
-
-            instance.hideFlags = HideFlags.HideAndDontSave;
-            SetHideFlagsRecursively(instance, HideFlags.HideAndDontSave);
-            instance.transform.SetParent(canvasObject.transform, false);
-            instance.SetActive(true);
-            SampleDefaultFrame(instance);
-            Canvas.ForceUpdateCanvases();
-            LayoutRebuilder.ForceRebuildLayoutImmediate(instance.GetComponent<RectTransform>());
-            Canvas.ForceUpdateCanvases();
+            var instance = InstantiatePreviewPrefab(source, canvasObject.transform);
 
             var rootRect = instance.GetComponent<RectTransform>();
             if (spec.RenderMode == PartnerRenderMode.HeadShot)
@@ -650,7 +637,7 @@ public static class SbScenePartnerResultBuilder
 
             canvasObject.transform.SetParent(sceneRoot.transform, false);
             ConfigureWorldCanvas(canvasObject, camera, OutputSize);
-            InstantiateSampledPrefab(source, canvasObject.transform);
+            InstantiatePreviewPrefab(source, canvasObject.transform);
             Canvas.ForceUpdateCanvases();
 
             var texture = new Texture2D(spec.OutputSize, spec.OutputSize, TextureFormat.RGBA32, false);
@@ -690,7 +677,7 @@ public static class SbScenePartnerResultBuilder
         return pngAssetPath;
     }
 
-    private static GameObject InstantiateSampledPrefab(GameObject source, Transform parent)
+    private static GameObject InstantiatePreviewPrefab(GameObject source, Transform parent)
     {
         var instance = (GameObject)PrefabUtility.InstantiatePrefab(source);
         if (instance == null)
@@ -698,15 +685,129 @@ public static class SbScenePartnerResultBuilder
             throw new InvalidOperationException("Prefab instance could not be created.");
         }
 
+        // Match the prefab as it appears when dropped into the Scene, before any default animation sampling.
+        instance.SetActive(false);
         instance.hideFlags = HideFlags.HideAndDontSave;
         SetHideFlagsRecursively(instance, HideFlags.HideAndDontSave);
         instance.transform.SetParent(parent, false);
-        instance.SetActive(true);
-        SampleDefaultFrame(instance);
+        DisableAnimator(instance);
+        RestorePrefabStaticState(instance, source);
+        DisableAnimator(instance);
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(instance.GetComponent<RectTransform>());
         Canvas.ForceUpdateCanvases();
         return instance;
+    }
+
+    private static void RestorePrefabStaticState(GameObject instance, GameObject source)
+    {
+        var sourceByPath = BuildTransformPathMap(source.transform);
+        foreach (var targetTransform in instance.GetComponentsInChildren<Transform>(true))
+        {
+            var sourceTransform = ResolveSourceTransform(instance.transform, source.transform, sourceByPath, targetTransform);
+            if (sourceTransform == null)
+            {
+                continue;
+            }
+
+            RestoreGameObjectStaticState(sourceTransform.gameObject, targetTransform.gameObject);
+            RestoreTransformStaticState(sourceTransform, targetTransform);
+            RestoreSerializedComponentArray<CanvasGroup>(sourceTransform, targetTransform);
+            RestoreSerializedComponentArray<Graphic>(sourceTransform, targetTransform);
+        }
+    }
+
+    private static Dictionary<string, Transform> BuildTransformPathMap(Transform root)
+    {
+        var map = new Dictionary<string, Transform>(StringComparer.Ordinal);
+        foreach (var transform in root.GetComponentsInChildren<Transform>(true))
+        {
+            var path = GetTransformPath(root, transform);
+            if (!map.ContainsKey(path))
+            {
+                map.Add(path, transform);
+            }
+        }
+
+        return map;
+    }
+
+    private static Transform ResolveSourceTransform(
+        Transform instanceRoot,
+        Transform sourceRoot,
+        Dictionary<string, Transform> sourceByPath,
+        Transform targetTransform)
+    {
+        var corresponding = PrefabUtility.GetCorrespondingObjectFromSource(targetTransform) as Transform;
+        if (corresponding != null && (corresponding == sourceRoot || corresponding.IsChildOf(sourceRoot)))
+        {
+            return corresponding;
+        }
+
+        var path = GetTransformPath(instanceRoot, targetTransform);
+        return sourceByPath.TryGetValue(path, out var sourceTransform) ? sourceTransform : null;
+    }
+
+    private static string GetTransformPath(Transform root, Transform transform)
+    {
+        if (root == transform)
+        {
+            return string.Empty;
+        }
+
+        var names = new Stack<string>();
+        var current = transform;
+        while (current != null && current != root)
+        {
+            names.Push(current.name);
+            current = current.parent;
+        }
+
+        return current == root ? string.Join("/", names.ToArray()) : transform.name;
+    }
+
+    private static void RestoreGameObjectStaticState(GameObject source, GameObject target)
+    {
+        target.layer = source.layer;
+        target.SetActive(source.activeSelf);
+    }
+
+    private static void RestoreTransformStaticState(Transform source, Transform target)
+    {
+        target.localPosition = source.localPosition;
+        target.localRotation = source.localRotation;
+        target.localScale = source.localScale;
+
+        var sourceRect = source as RectTransform;
+        var targetRect = target as RectTransform;
+        if (sourceRect == null || targetRect == null)
+        {
+            return;
+        }
+
+        targetRect.anchorMin = sourceRect.anchorMin;
+        targetRect.anchorMax = sourceRect.anchorMax;
+        targetRect.anchoredPosition = sourceRect.anchoredPosition;
+        targetRect.sizeDelta = sourceRect.sizeDelta;
+        targetRect.pivot = sourceRect.pivot;
+    }
+
+    private static void RestoreSerializedComponentArray<T>(Transform source, Transform target) where T : Component
+    {
+        var sourceComponents = source.GetComponents<T>();
+        var targetComponents = target.GetComponents<T>();
+        var count = Mathf.Min(sourceComponents.Length, targetComponents.Length);
+        for (var index = 0; index < count; index++)
+        {
+            var sourceComponent = sourceComponents[index];
+            var targetComponent = targetComponents[index];
+            if (sourceComponent == null || targetComponent == null || sourceComponent.GetType() != targetComponent.GetType())
+            {
+                continue;
+            }
+
+            EditorUtility.CopySerialized(sourceComponent, targetComponent);
+        }
     }
 
     private static void ConfigureWorldCanvas(GameObject canvasObject, Camera camera, int size)
